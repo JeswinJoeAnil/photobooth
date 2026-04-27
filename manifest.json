@@ -1,0 +1,16 @@
+{
+  "name": "Purikura Studio",
+  "short_name": "Purikura",
+  "description": "Y2K-themed Photobooth with stickers and filters",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#ff007f",
+  "theme_color": "#ff007f",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48dGV4dCB5PSIuOWVtIiBmb250LXNpemU9IjkwIj7wn5ONPC90ZXh0Pjwvc3ZnPg==",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

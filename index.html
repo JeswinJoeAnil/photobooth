@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="manifest" href="manifest.json">
+  <title>PURIKURA STUDIO &#9733;</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log('SW registered!', reg))
+          .catch(err => console.error('SW error', err));
+      });
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
+    crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+
+<body>
+  <div id="app">
+    <header>
+      <div class="logo">PHOTO-BOOTH &#9733;</div>
+      <div style="display:flex;justify-content:center;margin-top:12px;gap:15px;flex-wrap:wrap;">
+        <div class="coin">
+          <div class="coin-dot"></div>&#9733; READY &middot; INSERT COIN &middot; &yen;100 &#9733;
+        </div>
+        <button id="party-mode-btn" class="cpill-btn" style="background:var(--purple);color:white;border-color:#111;">
+          &#127882; PARTY MODE
+        </button>
+      </div>
+      <div id="room-info" style="display:none;margin-top:10px;font-family:'DotGothic16';font-weight:bold;color:var(--hot-pink);">
+        ROOM ID: <span id="display-room-id">---</span> 
+        <button id="leave-room-btn" style="padding:2px 8px;font-size:0.8rem;margin-left:10px;">LEAVE</button>
+      </div>
+    </header>
+
+    <div id="room-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2000;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:var(--white);border:var(--y2k-border);box-shadow:var(--y2k-shadow);padding:30px;border-radius:16px;max-width:400px;width:100%;text-align:center;">
+        <h2 style="font-family:'DotGothic16';margin-bottom:20px;">&#127881; PARTY SETUP</h2>
+        <div style="display:flex;flex-direction:column;gap:15px;">
+          <button id="create-room-btn" class="save-btn" style="background:var(--lime);">CREATE NEW ROOM</button>
+          <div style="margin:10px 0;font-weight:bold;">- OR -</div>
+          <input type="text" id="room-input" placeholder="ENTER ROOM ID..." class="caption-inp" style="margin-top:0;">
+          <button id="join-room-btn" class="save-btn">JOIN ROOM</button>
+          <button id="close-modal-btn" style="background:#eee;border:none;margin-top:10px;">CANCEL</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <!-- LEFT: CAMERA -->
+      <div>
+        <div class="cam-card">
+          <div id="video-container">
+            <video id="video" autoplay muted playsinline></video>
+          </div>
+          <canvas id="bg-canvas"
+            style="position:absolute;top:15px;left:15px;width:calc(100% - 30px);height:calc(100% - 30px);border-radius:6px;object-fit:cover;pointer-events:none;z-index:2;display:none;"></canvas>
+          <div id="vign-ov"
+            style="position:absolute;inset:15px;pointer-events:none;z-index:5;border-radius:6px;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,0.5) 100%);opacity:0;transition:opacity 0.3s;">
+          </div>
+          <canvas id="grain-c"
+            style="position:absolute;inset:15px;pointer-events:none;z-index:6;opacity:0.05;mix-blend-mode:screen;"></canvas>
+          <div class="live-badge">
+            <div class="live-dot"></div>&#9679; LIVE
+          </div>
+          <div class="shot-counter" id="shot-counter">&#128247; 0/3</div>
+          <div id="countdown-el"></div>
+          <div id="flash-el"></div>
+          <div id="progress-ring">
+            <svg width="200" height="200" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);">
+              <circle id="prog-circle" cx="100" cy="100" r="80" fill="none" stroke="url(#pg)" stroke-width="6"
+                stroke-dasharray="502" stroke-dashoffset="502" stroke-linecap="round" transform="rotate(-90 100 100)" />
+              <defs>
+                <linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#ff007f" />
+                  <stop offset="50%" stop-color="#00ffff" />
+                  <stop offset="100%" stop-color="#b026ff" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div id="perm-screen">
+            <h3>KONNICHIWA! &#9733;</h3>
+            <p>CAMERA NEEDED TO BEGIN</p>
+            <button id="start-btn">&#128247; Enable Camera</button>
+          </div>
+        </div>
+
+        <div style="text-align:center;margin-top:15px;margin-bottom:15px;">
+          <div class="tagline">&#9733; INSERT YOURSELF HERE &#9733;</div>
+        </div>
+
+        <div class="shoot-zone">
+          <div class="ctrl-row">
+            <button class="cpill-btn" id="flip-btn" disabled>&#8596; FLIP</button>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:1rem;font-weight:bold;">
+              TIMER
+              <select class="cpill-btn" id="timer-sel" disabled>
+                <option value="3">3 SEC</option>
+                <option value="5">5 SEC</option>
+                <option value="10">10 SEC</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:1rem;font-weight:bold;">
+              QUALITY
+              <select class="cpill-btn" id="res-sel">
+                <option value="720">720p</option>
+                <option value="1080">1080p</option>
+                <option value="1440">1440p</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:1rem;font-weight:bold;">
+              SHOTS
+              <select class="cpill-btn" id="shots-sel">
+                <option value="2">&times; 2</option>
+                <option value="3" selected>&times; 3</option>
+                <option value="4">&times; 4</option>
+              </select>
+            </label>
+          </div>
+
+          <button class="shoot-btn" id="snap-btn" disabled title="Take Photo (Space)">&#128248;</button>
+
+          <div class="ctrl-row">
+            <button class="cpill-btn" id="voice-btn" disabled>&#127897; VOICE OFF</button>
+            <button class="cpill-btn" id="burst-btn" disabled>&#9889; BURST</button>
+            <button class="cpill-btn" id="retake-btn">&#8634; RETAKE</button>
+          </div>
+        </div>
+
+        <div style="text-align:center;margin-top:15px;">
+          <span class="keyboard-hints">SPACE = SHOOT &nbsp;&middot;&nbsp; R = RETAKE &nbsp;&middot;&nbsp; F = FILTER
+            &nbsp;&middot;&nbsp; S = SAVE</span>
+        </div>
+      </div>
+
+      <!-- RIGHT: STRIP -->
+      <div>
+        <div class="strip-card">
+          <div
+            style="font-family:'DotGothic16',monospace;font-size:1.4rem;font-weight:bold;margin-bottom:15px;text-align:center;">
+            &#128247; PHOTO STRIP</div>
+          <div class="strip-photos" id="strip-photos"></div>
+          <div class="shot-dots" id="shot-dots"></div>
+        </div>
+
+        <div style="margin-top:15px;">
+          <label style="font-size:1.1rem;font-weight:bold;display:block;margin-bottom:8px;">&#9999; CAPTION</label>
+          <input class="caption-inp" id="caption" placeholder="write something cute... &#9733;" maxlength="28">
+        </div>
+
+        <div class="save-wrap">
+          <div class="save-dropdown" id="save-dd">
+            <button class="save-opt" id="opt-save">&#11015; Save PNG</button>
+            <button class="save-opt" id="opt-copy">&#10697; Copy Image</button>
+            <button class="save-opt" id="opt-share">&#8599; Share</button>
+            <button class="save-opt" id="opt-print">&#9113; Print 2&times;6"</button>
+          </div>
+          <button class="save-btn" id="save-btn" disabled>&#128424; PRINT &amp; SAVE &#9662;</button>
+        </div>
+
+
+        <div
+          style="margin-top:20px;background:#fff;border:3px solid #111;border-radius:12px;padding:15px;box-shadow:3px 3px 0 #111;">
+          <div style="font-family:'DotGothic16',monospace;font-size:1.3rem;font-weight:bold;margin-bottom:12px;">
+            &#127912; BORDER / BG</div>
+          <div class="bswatch-row" id="bswatches"></div>
+          <div class="bgswatch-row" id="bgswatches"
+            style="display:flex;gap:8px;overflow-x:auto;padding-bottom:10px;margin-top:10px;align-items:center;">
+            <label class="bgswatch"
+              style="display:flex;align-items:center;justify-content:center;background:#eee;font-size:1.5rem;"
+              title="Custom Image">
+              + <input type="file" id="strip-bg-inp" accept="image/*" style="display:none;">
+            </label>
+          </div>
+          <div class="lay-row">
+            <div class="laypill active" data-lay="v">STRIP</div>
+            <div class="laypill" data-lay="p">POLAR</div>
+            <div class="laypill" data-lay="h">WIDE</div>
+          </div>
+          <label
+            style="display:flex;align-items:center;gap:12px;margin-top:15px;font-size:1.1rem;font-weight:bold;cursor:pointer;">
+            <input type="checkbox" id="date-cb" style="width:20px;height:20px;accent-color:#ff007f;"> &#128197; DATE
+            STAMP
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRAWER -->
+  <div class="drawer" id="drawer">
+    <div class="drawer-handle">
+      <div class="drawer-tabs">
+        <button class="drawer-tab active" data-tab="filters">&#127912; FILTERS</button>
+        <button class="drawer-tab" data-tab="bg">&#127748; BACKGROUND</button>
+        <button class="drawer-tab" data-tab="adjust">&#128295; ADJUST</button>
+        <button class="drawer-tab" data-tab="stickers">&#10024; STICKERS</button>
+        <button class="drawer-tab" data-tab="frames">&#128444; FRAMES</button>
+        <button class="drawer-tab" data-tab="text">&#9999; TEXT</button>
+      </div>
+      <button class="drawer-toggle" id="drawer-toggle">&#9652; OPEN</button>
+    </div>
+    <div class="drawer-content">
+      <div class="tab-pane active" id="tab-filters">
+        <div class="filter-scroll" id="filter-scroll"></div>
+      </div>
+      <div class="tab-pane" id="tab-bg">
+        <div style="display:flex;gap:10px;padding:10px;">
+          <button class="cpill-btn" id="bg-none" style="flex:1;">NONE</button>
+          <button class="cpill-btn" id="bg-blur" style="flex:1;">BLUR</button>
+          <label class="cpill-btn" style="flex:1;text-align:center;cursor:pointer;">
+            COLOR <input type="color" id="bg-color" value="#ff007f"
+              style="opacity:0;width:0;height:0;position:absolute;">
+          </label>
+          <label class="cpill-btn" style="flex:1;text-align:center;cursor:pointer;">
+            IMAGE <input type="file" id="bg-img-inp" accept="image/*" style="display:none;">
+          </label>
+        </div>
+        <div id="bg-presets" style="display:flex;gap:10px;padding:0 10px 10px;overflow-x:auto;align-items:center;">
+        </div>
+      </div>
+      <div class="tab-pane" id="tab-adjust">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;padding:10px;">
+          <label>Brightness <input type="range" id="sl-b" min="50" max="150" value="100"></label>
+          <label>Contrast <input type="range" id="sl-c" min="50" max="150" value="100"></label>
+          <label>Saturation <input type="range" id="sl-s" min="0" max="200" value="100"></label>
+          <label>Hue <input type="range" id="sl-h" min="0" max="360" value="0"></label>
+          <label>Zoom <input type="range" id="sl-z" min="100" max="200" value="100"></label>
+          <label>Vignette <input type="range" id="sl-v" min="0" max="100" value="0"></label>
+          <label>Film Grain <input type="range" id="sl-g" min="0" max="100" value="5"></label>
+        </div>
+      </div>
+      <div class="tab-pane" id="tab-stickers">
+        <div class="stab-row" id="stab-row"></div>
+        <div class="sbubbles" id="sbubbles"></div>
+      </div>
+      <div class="tab-pane" id="tab-frames">
+        <div class="frames-grid" id="frames-grid"></div>
+      </div>
+      <div class="tab-pane" id="tab-text">
+        <div style="padding:10px;">
+          <div style="display:flex;gap:10px;margin-bottom:15px;">
+            <input type="text" id="txt-inp" placeholder="Type here..."
+              style="flex:1;padding:8px;border:2px solid #111;border-radius:4px;font-family:'M PLUS Rounded 1c';">
+            <select id="txt-font" style="padding:8px;border:2px solid #111;border-radius:4px;font-weight:bold;">
+              <option value="'M PLUS Rounded 1c'">ROUND</option>
+              <option value="'DotGothic16'">PIXEL</option>
+              <option value="'Pacifico'">SCRIPT</option>
+            </select>
+            <button id="add-txt-btn"
+              style="padding:8px 12px;background:#111;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer;">ADD</button>
+          </div>
+          <div style="margin-bottom:10px;font-weight:bold;font-family:'DotGothic16';">TEXT COLOR</div>
+          <div class="pwatch-row" id="pwatches"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    // GRAIN
+    const gc = document.getElementById('grain-c'); const gx = gc.getContext('2d');
+    let grainAmt = 0.05;
+    (function grain() {
+      gc.width = gc.offsetWidth || 400; gc.height = gc.offsetHeight || 300;
+      const id = gx.createImageData(gc.width, gc.height); const d = id.data;
+      for (let i = 0; i < d.length; i += 4) { const v = Math.random() * 255; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = grainAmt * 255; }
+      gx.putImageData(id, 0, 0); requestAnimationFrame(grain);
+    })();
+    // SPROCKETS (elements removed in new layout ? guard safely)
+    function buildSprockets() {
+      ['sp-left', 'sp-right'].forEach(id => {
+        const el = document.getElementById(id); if (!el) return;
+        el.innerHTML = '';
+        for (let i = 0; i < 12; i++) { const s = document.createElement('div'); s.className = 'sprocket'; el.appendChild(s); }
+      });
+    }
+    buildSprockets();
+    // AUDIO
+    let aC = null;
+    function ac() { if (!aC) aC = new (window.AudioContext || window.webkitAudioContext)(); return aC; }
+    function beep(f = 440, d = 0.1, v = 0.15) { try { const o = ac().createOscillator(), g = ac().createGain(); o.connect(g); g.connect(ac().destination); o.frequency.value = f; g.gain.setValueAtTime(v, ac().currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac().currentTime + d); o.start(); o.stop(ac().currentTime + d); } catch (e) { } }
+    function shutter() { try { const o = ac().createOscillator(), g = ac().createGain(); o.connect(g); g.connect(ac().destination); o.frequency.setValueAtTime(800, ac().currentTime); o.frequency.exponentialRampToValueAtTime(200, ac().currentTime + 0.07); g.gain.setValueAtTime(0.3, ac().currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac().currentTime + 0.1); o.start(); o.stop(ac().currentTime + 0.1); } catch (e) { } }
+    // FILTERS
+    const FILTERS = [
+      // — NATURAL —————————————
+      { n: 'NATURAL', css: 'none' },
+      { n: 'BRIGHT', css: 'brightness(115%) contrast(95%) saturate(110%)' },
+      { n: 'SOFT', css: 'brightness(108%) contrast(88%) saturate(80%) blur(0.4px)' },
+
+      // — FILM / ANALOG —————————————
+      { n: 'KODAK 400', css: 'sepia(18%) saturate(140%) contrast(105%) brightness(103%) hue-rotate(5deg)' },
+      { n: 'KODAK 200', css: 'sepia(25%) saturate(120%) contrast(100%) brightness(108%) hue-rotate(10deg)' },
+      { n: 'FUJI 400', css: 'sepia(10%) saturate(160%) contrast(108%) brightness(100%) hue-rotate(-8deg)' },
+      { n: 'FUJI PRO', css: 'sepia(8%) saturate(130%) contrast(112%) brightness(97%) hue-rotate(-15deg)' },
+      { n: 'PORTRA', css: 'sepia(20%) saturate(110%) contrast(98%) brightness(112%) hue-rotate(8deg)' },
+      { n: 'CINESTILL', css: 'sepia(12%) saturate(140%) contrast(110%) brightness(95%) hue-rotate(-20deg)' },
+      { n: 'SUPERIA', css: 'sepia(15%) saturate(135%) contrast(103%) brightness(105%) hue-rotate(5deg)' },
+
+      // — BLACK AND WHITE —————————————
+      { n: 'B&W', css: 'grayscale(100%) contrast(110%)' },
+      { n: 'ILFORD', css: 'grayscale(100%) contrast(140%) brightness(90%)' },
+      { n: 'TMAX', css: 'grayscale(100%) contrast(180%) brightness(85%)' },
+      { n: 'AGFA', css: 'grayscale(100%) contrast(120%) brightness(95%) sepia(10%)' },
+
+      // — VINTAGE / ERA —————————————
+      { n: '60s', css: 'sepia(60%) saturate(60%) contrast(90%) brightness(110%)' },
+      { n: '70s', css: 'sepia(40%) saturate(80%) contrast(95%) brightness(105%) hue-rotate(15deg)' },
+      { n: '80s', css: 'contrast(130%) saturate(200%) hue-rotate(340deg) brightness(95%)' },
+      { n: '90s PRINT', css: 'saturate(80%) contrast(105%) brightness(107%) sepia(15%)' },
+      { n: 'Y2K', css: 'saturate(180%) contrast(155%) hue-rotate(200deg) brightness(100%)' },
+
+      // — INSTANT / POLAROID —————————————
+      { n: 'POLAROID', css: 'sepia(22%) saturate(90%) contrast(92%) brightness(113%) hue-rotate(12deg)' },
+      { n: 'INSTAX', css: 'brightness(120%) saturate(130%) contrast(90%) hue-rotate(-5deg)' },
+      { n: 'FADED', css: 'saturate(50%) contrast(85%) brightness(118%)' },
+
+      // — MOOD —————————————
+      { n: 'GOLDEN', css: 'sepia(35%) saturate(130%) brightness(112%) contrast(95%) hue-rotate(5deg)' },
+      { n: 'COOL FILM', css: 'hue-rotate(175deg) saturate(90%) contrast(105%) brightness(102%) sepia(10%)' },
+      { n: 'DUSK', css: 'sepia(30%) saturate(120%) hue-rotate(320deg) contrast(108%) brightness(95%)' }
+    ];
+    let curFilter = 'none';
+    const fCanvases = [];
+    function buildFilters() {
+      const row = document.getElementById('filter-scroll');
+      FILTERS.forEach((f, i) => {
+        const card = document.createElement('div'); card.className = 'fcard' + (i === 0 ? ' active' : '');
+        const fc = document.createElement('canvas'); fc.width = 64; fc.height = 48;
+        fCanvases.push({ c: fc, f: f.css });
+        const nm = document.createElement('div'); nm.className = 'fcard-name'; nm.textContent = f.n;
+        card.appendChild(fc); card.appendChild(nm);
+        card.onclick = () => {
+          curFilter = f.css; applyVF();
+          row.querySelectorAll('.fcard').forEach(x => x.classList.remove('active'));
+          card.classList.add('active');
+        };
+        row.appendChild(card);
+      });
+    }
+    function applyVF() {
+      const b = document.getElementById('sl-b').value, cc = document.getElementById('sl-c').value,
+        s = document.getElementById('sl-s').value, h = document.getElementById('sl-h').value;
+      const m = `brightness(${b}%) contrast(${cc}%) saturate(${s}%) hue-rotate(${h}deg)`;
+      const fStr = curFilter === 'none' ? m : curFilter + ' ' + m;
+      video.style.filter = fStr;
+      bgCanvas.style.filter = fStr;
+      const z = document.getElementById('sl-z').value;
+      const tStr = `scale(${z / 100})${flipped ? ' scaleX(-1)' : ''}`;
+      video.style.transform = tStr;
+      bgCanvas.style.transform = tStr;
+    }
+    function thumbLoop() {
+      if (!video.srcObject) { requestAnimationFrame(thumbLoop); return; }
+      fCanvases.forEach(({ c, f }) => { const x = c.getContext('2d'); x.filter = f; x.drawImage(video, 0, 0, 64, 48); });
+      requestAnimationFrame(thumbLoop);
+    }
+    // SLIDERS
+    ['sl-b', 'sl-c', 'sl-s', 'sl-h', 'sl-z'].forEach(id => document.getElementById(id).oninput = applyVF);
+    document.getElementById('sl-v').oninput = function () { document.getElementById('vign-ov').style.opacity = this.value / 100; };
+    document.getElementById('sl-g').oninput = function () { grainAmt = this.value / 100; gc.style.opacity = Math.min(0.12, grainAmt * 1.5); };
+    // DRAWER
+    let drawerOpen = false, activeTab = 'filters';
+    const drawer = document.getElementById('drawer');
+    const toggle = document.getElementById('drawer-toggle');
+    function openDrawer() { drawerOpen = true; drawer.style.height = '320px'; toggle.classList.add('open'); toggle.textContent = '? CLOSE'; }
+    function closeDrawer() { drawerOpen = false; drawer.style.height = '70px'; toggle.classList.remove('open'); toggle.textContent = '? OPEN'; }
+    toggle.onclick = () => { if (drawerOpen) closeDrawer(); else openDrawer(); };
+    document.querySelectorAll('.drawer-tab').forEach(t => {
+      t.onclick = () => {
+        const tab = t.dataset.tab;
+        document.querySelectorAll('.drawer-tab').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        document.getElementById('tab-' + tab).classList.add('active');
+        activeTab = tab;
+        if (!drawerOpen) openDrawer();
+      };
+    });
+    // STICKERS
+    const STICKER_CATS = {
+      '✨ Sparkle': ['✨', '💫', '🌟', '❇️', '🎇', '🎆', '🔮', '🪄', '💎', '🫧'],
+      '💖 Love': ['💖', '💘', '💝', '💕', '💞', '💓', '💗', '🫶', '💌', '💋'],
+      '🌸 Nature': ['🌸', '🌺', '🌻', '🍄', '🦋', '🐞', '🍀', '🌵', '🍓', '🍒'],
+      '🥺 Mood': ['🥺', '😭', '😡', '😇', '🤪', '🤫', '🫣', '🤭', '🤩', '😴'],
+      '🎀 Kawaii': ['🎀', '🧸', '🍡', '🍥', '🌸', '🍓', '☁️', '🌙', '🐇', '🐈'],
+    };
+    let selSticker = null, activeSCat = Object.keys(STICKER_CATS)[0];
+    function buildStickerCats() {
+      const row = document.getElementById('stab-row'); row.innerHTML = '';
+      Object.keys(STICKER_CATS).forEach(k => {
+        const b = document.createElement('button'); b.className = 'stab' + (k === activeSCat ? ' active' : '');
+        b.textContent = k;
+        b.onclick = () => {
+          activeSCat = k;
+          row.querySelectorAll('.stab').forEach(x => x.classList.remove('active')); b.classList.add('active');
+          renderSBubbles();
+        };
+        row.appendChild(b);
+      });
+    }
+    function renderSBubbles() {
+      const g = document.getElementById('sbubbles'); g.innerHTML = '';
+      (STICKER_CATS[activeSCat] || []).forEach(s => {
+        const b = document.createElement('div'); b.className = 'sbub' + (s === selSticker ? ' sel' : '');
+        b.textContent = s;
+        b.onclick = () => {
+          selSticker = selSticker === s ? null : s;
+          g.querySelectorAll('.sbub').forEach(x => x.classList.remove('sel'));
+          if (selSticker) b.classList.add('sel');
+        };
+        g.appendChild(b);
+      });
+    }
+    buildStickerCats(); renderSBubbles();
+    // FRAMES
+    const FRAMES = [{ n: 'NONE', v: null }, { n: 'HEARTS', v: 'hearts' }, { n: 'STARS', v: 'stars' }, { n: 'POLAROID', v: 'polaroid' }, { n: 'VHS', v: 'vhs' }, { n: 'SAKURA', v: 'sakura' }, { n: 'DAISY', v: 'daisy' }, { n: 'GLITTER', v: 'glitter' }, { n: 'BOWS', v: 'bows' }, { n: 'CLOUDS', v: 'clouds' }];
+    let curFrame = null;
+    function buildFrames() {
+      const g = document.getElementById('frames-grid');
+      FRAMES.forEach(f => {
+        const b = document.createElement('div'); b.className = 'fbtn' + (f.v === null ? ' active' : '');
+        b.textContent = f.n;
+        b.onclick = () => {
+          const oldFrame = curFrame;
+          curFrame = f.v;
+          g.querySelectorAll('.fbtn').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+          document.querySelectorAll('.pslot').forEach(slot => {
+            if (oldFrame) slot.classList.remove(oldFrame);
+            if (curFrame) slot.classList.add(curFrame);
+          });
+        };
+        g.appendChild(b);
+      });
+    }
+    buildFrames();
+    // BORDER SWATCHES
+    const BORDERS = [
+      { bg: '#ffffff', cls: '', lbl: 'WHITE' }, { bg: '#1a1a2e', cls: '', lbl: 'NIGHT' },
+      { bg: '', cls: 'holo', lbl: 'HOLO' }, { bg: '#ffb6c1', cls: '', lbl: 'SAKURA' },
+      { bg: '#faf6e0', cls: '', lbl: 'RICE' }, { bg: '#e8f4ff', cls: '', lbl: 'CLOUD' },
+    ];
+    let curBorder = BORDERS[0];
+    let curStripBgUrl = null;
+
+    function applyStripBg() {
+      const scard = document.querySelector('.strip-card');
+      if (curStripBgUrl) {
+        scard.style.background = `url("${curStripBgUrl}") repeat`;
+        scard.style.backgroundSize = 'auto'; // Use original size for repeating patterns
+      } else {
+        scard.style.background = curBorder.bg || '#fff';
+        if (curBorder.cls === 'holo') {
+          scard.style.background = 'linear-gradient(45deg, #c0a0ff, #ff9de2, #9de2ff, #ffd89d)';
+        }
+      }
+    }
+
+    function buildSwatches() {
+      const row = document.getElementById('bswatches');
+      BORDERS.forEach((b, i) => {
+        const s = document.createElement('div'); s.className = 'bswatch' + (b.cls ? ' ' + b.cls : '') + (i === 0 ? ' active' : '');
+        if (b.bg) s.style.background = b.bg; s.title = b.lbl;
+        s.onclick = () => {
+          curBorder = b;
+          curStripBgUrl = null;
+          document.querySelectorAll('.bswatch, .bgswatch').forEach(x => x.classList.remove('active'));
+          s.classList.add('active');
+          applyStripBg();
+        };
+        row.appendChild(s);
+      });
+
+      const bgRow = document.getElementById('bgswatches');
+      const bgPresets = document.getElementById('bg-presets');
+      const bgImages = ['8.jpg', '9.jpg', '10.jpg', 'image copy.png', 'image.png', '5.jpg', '4.jpg', '3.jpg', 'image copy 2.png'];
+
+      bgImages.forEach(img => {
+        const imgUrl = `images/${encodeURIComponent(img)}`;
+
+        // Image circle → sets strip background
+        const s = document.createElement('div');
+        s.className = 'bgswatch';
+        s.style.backgroundImage = `url("${imgUrl}")`;
+        s.title = img;
+        s.onclick = () => {
+          curStripBgUrl = imgUrl;
+          document.querySelectorAll('.bswatch, .bgswatch').forEach(x => x.classList.remove('active'));
+          s.classList.add('active');
+          applyStripBg();
+        };
+        bgRow.appendChild(s);
+
+        // Also add to camera background presets panel
+        const p = document.createElement('div');
+        p.className = 'bgswatch';
+        p.style.backgroundImage = `url("${imgUrl}")`;
+        p.title = img;
+        p.onclick = () => {
+          const i = new Image();
+          i.onload = () => { bgImage = i; bgMode = 'image'; initSegmentation(); };
+          i.src = imgUrl;
+          document.querySelectorAll('#bg-presets .bgswatch').forEach(x => x.classList.remove('active'));
+          p.classList.add('active');
+        };
+        bgPresets.appendChild(p);
+      });
+
+      document.getElementById('strip-bg-inp').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        curStripBgUrl = url;
+        document.querySelectorAll('.bswatch, .bgswatch').forEach(x => x.classList.remove('active'));
+        applyStripBg();
+      };
+    }
+    buildSwatches();
+    applyStripBg();
+    // LAYOUT
+    let curLayout = 'v';
+    document.querySelectorAll('.laypill').forEach(p => {
+      p.onclick = () => {
+        curLayout = p.dataset.lay;
+        document.querySelectorAll('.laypill').forEach(x => x.classList.remove('active'));
+        p.classList.add('active'); renderStrip();
+      };
+    });
+    // PASTEL TEXT COLORS
+    const PASTELS = ['#c084fc', '#ff6eb4', '#ffb347', '#7dd3b0', '#60a5fa', '#1a1a2e', '#fff'];
+    let txtColor = PASTELS[0];
+    function buildPastels() {
+      const row = document.getElementById('pwatches');
+      PASTELS.forEach(c => {
+        const s = document.createElement('div'); s.className = 'pswatch' + (c === txtColor ? ' active' : '');
+        s.style.background = c; if (c === '#fff') s.style.border = '1.5px solid #ddd';
+        s.onclick = () => { txtColor = c; row.querySelectorAll('.pswatch').forEach(x => x.classList.remove('active')); s.classList.add('active'); };
+        row.appendChild(s);
+      });
+    }
+    buildPastels();
+    document.getElementById('add-txt-btn').onclick = () => {
+      const t = document.getElementById('txt-inp').value.trim(); if (!t) return;
+      const f = document.getElementById('txt-font').value;
+      const slots = document.querySelectorAll('.pslot');
+      const layer = slots[0] ? slots[0].querySelector('.sticker-layer') : null;
+      if (layer) { addTextToLayer(layer, t, f, txtColor); }
+      document.getElementById('txt-inp').value = '';
+      showToast('TEXT ADDED 📝');
+    };
+    // CAMERA
+    const video = document.getElementById('video');
+    const capC = document.createElement('canvas'); const capX = capC.getContext('2d');
+    let stream = null, flipped = false, shooting = false, photos = [], maxPhotos = 3;
+    let loopRunning = false;
+    async function startCam() {
+      try {
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+        }
+        const res = parseInt(document.getElementById('res-sel').value || '720', 10);
+        let w = 1280, h = 960;
+        if (res === 720) { w = 960; h = 720; }
+        else if (res === 1080) { w = 1440; h = 1080; }
+        else if (res === 1440) { w = 1920; h = 1440; }
+
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: w }, height: { ideal: h }, facingMode: 'user' }, audio: false });
+        video.srcObject = stream;
+        document.getElementById('perm-screen').style.display = 'none';
+        document.getElementById('snap-btn').disabled = false;
+        document.getElementById('burst-btn').disabled = false;
+        document.getElementById('voice-btn').disabled = false;
+        document.getElementById('flip-btn').disabled = false;
+        document.getElementById('timer-sel').disabled = false;
+        if (!loopRunning) { loopRunning = true; thumbLoop(); }
+        renderStrip(); showToast('CAMERA READY 📸');
+      } catch (e) { document.getElementById('perm-screen').querySelector('p').textContent = 'UNAVAILABLE ❌ CHECK PERMISSIONS'; }
+    }
+    document.getElementById('start-btn').onclick = startCam;
+    document.getElementById('res-sel').onchange = startCam;
+    document.getElementById('flip-btn').onclick = () => { flipped = !flipped; applyVF(); };
+    document.getElementById('shots-sel').onchange = function () { maxPhotos = +this.value; photos = photos.slice(0, maxPhotos); renderStrip(); updateUI(); };
+    function updateUI() {
+      document.getElementById('shot-counter').textContent = `? ${photos.length}/${maxPhotos}`;
+      const dots = document.getElementById('shot-dots'); dots.innerHTML = '';
+      for (let i = 0; i < maxPhotos; i++) { const d = document.createElement('div'); d.className = 'sdot' + (i < photos.length ? ' filled' : ''); dots.appendChild(d); }
+    }
+    // BACKGROUND SEGMENTATION
+    let bgMode = 'none'; // 'none', 'blur', 'color', 'image'
+    let bgColor = '#ff007f';
+    let bgImage = null;
+    let selfieSegmentation = null;
+    const bgCanvas = document.getElementById('bg-canvas');
+    const bgCtx = bgCanvas.getContext('2d');
+    let maskFrameId = null;
+
+    function initSegmentation() {
+      if (selfieSegmentation) return;
+      selfieSegmentation = new SelfieSegmentation({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}` });
+      selfieSegmentation.setOptions({ modelSelection: 1 });
+      selfieSegmentation.onResults(onSegmentationResults);
+      segmentationLoop();
+    }
+
+    async function segmentationLoop() {
+      if (bgMode !== 'none' && video.videoWidth > 0 && !shooting) {
+        await selfieSegmentation.send({ image: video });
+      } else if (bgMode === 'none') {
+        bgCanvas.style.display = 'none';
+        video.style.opacity = '1';
+      }
+      maskFrameId = requestAnimationFrame(segmentationLoop);
+    }
+
+    function onSegmentationResults(results) {
+      if (bgMode === 'none') return;
+      bgCanvas.style.display = 'block';
+      video.style.opacity = '0'; // Hide real video, show canvas
+      bgCanvas.width = results.image.width;
+      bgCanvas.height = results.image.height;
+
+      bgCtx.save();
+
+      // Draw the background
+      bgCtx.globalCompositeOperation = 'source-over';
+      if (bgMode === 'color') {
+        bgCtx.fillStyle = bgColor;
+        bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+      } else if (bgMode === 'image' && bgImage) {
+        bgCtx.drawImage(bgImage, 0, 0, bgCanvas.width, bgCanvas.height);
+      } else if (bgMode === 'blur') {
+        bgCtx.filter = 'blur(10px)';
+        bgCtx.drawImage(results.image, 0, 0, bgCanvas.width, bgCanvas.height);
+        bgCtx.filter = 'none';
+      }
+
+      // Composite the person
+      bgCtx.globalCompositeOperation = 'destination-out';
+      bgCtx.drawImage(results.segmentationMask, 0, 0, bgCanvas.width, bgCanvas.height);
+
+      bgCtx.globalCompositeOperation = 'destination-over';
+      bgCtx.drawImage(results.image, 0, 0, bgCanvas.width, bgCanvas.height);
+      bgCtx.restore();
+    }
+
+    document.getElementById('bg-none').onclick = () => { bgMode = 'none'; };
+    document.getElementById('bg-blur').onclick = () => { bgMode = 'blur'; initSegmentation(); };
+    document.getElementById('bg-color').addEventListener('input', (e) => { bgMode = 'color'; bgColor = e.target.value; initSegmentation(); });
+    document.getElementById('bg-img-inp').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => { bgImage = img; bgMode = 'image'; initSegmentation(); };
+      img.src = URL.createObjectURL(file);
+    });
+
+    // COUNTDOWN WITH RING
+    async function countdown() {
+      return new Promise(res => {
+        const el = document.getElementById('countdown-el'), ring = document.getElementById('progress-ring'), circ = document.getElementById('prog-circle');
+        const t = +document.getElementById('timer-sel').value;
+        el.style.opacity = '1'; ring.style.opacity = '1';
+        const total = 502; let n = t; el.textContent = n; circ.style.strokeDashoffset = total;
+        beep(440, 0.1, 0.15);
+        const iv = setInterval(() => {
+          n--;
+          const progress = (t - n) / t;
+          circ.style.strokeDashoffset = total * (1 - progress);
+          if (n <= 0) {
+            el.textContent = '?'; beep(880, 0.15, 0.2);
+            setTimeout(() => { el.style.opacity = '0'; ring.style.opacity = '0'; clearInterval(iv); res(); }, 350);
+          } else { el.textContent = n; beep(440 + n * 50, 0.1, 0.12); }
+        }, 1000);
+      });
+    }
+    function doFlash() {
+      const f = document.getElementById('flash-el'); f.style.opacity = '1'; setTimeout(() => f.style.opacity = '0', 80);
+      if (navigator.vibrate) navigator.vibrate(40);
+    }
+    function capture() {
+      capC.width = 1280; capC.height = 960;
+      if (flipped) { capX.translate(1280, 0); capX.scale(-1, 1); }
+      const b = document.getElementById('sl-b').value, cc = document.getElementById('sl-c').value,
+        s = document.getElementById('sl-s').value, h = document.getElementById('sl-h').value;
+      const m = `brightness(${b}%) contrast(${cc}%) saturate(${s}%) hue-rotate(${h}deg)`;
+      capX.filter = curFilter === 'none' ? m : curFilter + ' ' + m;
+
+      const sourceNode = (bgMode !== 'none' && bgCanvas.style.display !== 'none') ? bgCanvas : video;
+      capX.drawImage(sourceNode, 0, 0, 1280, 960);
+
+      if (flipped) capX.setTransform(1, 0, 0, 1, 0, 0);
+      return capC.toDataURL('image/jpeg', 0.92);
+    }
+    async function takeShot() {
+      if (shooting || !stream || photos.length >= maxPhotos) return;
+      shooting = true; document.getElementById('snap-btn').classList.add('pressed');
+      document.getElementById('snap-btn').disabled = true;
+      await countdown(); doFlash(); shutter();
+      photos.push(capture());
+      renderStrip(); updateUI();
+      document.getElementById('snap-btn').classList.remove('pressed');
+      if (photos.length >= maxPhotos) {
+        document.getElementById('save-btn').disabled = false;
+        fireConfetti(); showToast('STRIP COMPLETE ?');
+        beep(660, 0.2, 0.2); setTimeout(() => beep(880, 0.2, 0.2), 200);
+      } else {
+        document.getElementById('snap-btn').disabled = false;
+      }
+      shooting = false;
+    }
+    document.getElementById('snap-btn').onclick = takeShot;
+    let burstGo = false;
+    document.getElementById('burst-btn').onclick = async () => {
+      if (burstGo || !stream) return;
+      burstGo = true; photos = []; renderStrip(); updateUI();
+      document.getElementById('burst-btn').textContent = '?';
+      for (let i = 0; i < maxPhotos && burstGo; i++) {
+        await takeShot();
+        if (i < maxPhotos - 1) await new Promise(r => setTimeout(r, 1800));
+      }
+      burstGo = false; document.getElementById('burst-btn').textContent = '?';
+    };
+    document.getElementById('retake-btn').onclick = () => {
+      photos = []; burstGo = false; renderStrip(); updateUI();
+      document.getElementById('snap-btn').disabled = !stream;
+      document.getElementById('save-btn').disabled = true;
+      document.getElementById('save-dd').classList.remove('open');
+    };
+    // STRIP RENDER
+    function renderStrip() {
+      const cont = document.getElementById('strip-photos'); cont.innerHTML = '';
+      const isH = curLayout === 'h', isP = curLayout === 'p';
+      if (isH) { cont.style.flexDirection = 'row'; cont.style.flexWrap = 'wrap'; }
+      else { cont.style.flexDirection = 'column'; cont.style.flexWrap = 'nowrap'; }
+      for (let i = 0; i < maxPhotos; i++) {
+        const slot = document.createElement('div'); slot.className = 'pslot';
+        if (curFrame) slot.classList.add(curFrame);
+        if (isH) slot.style.cssText = 'flex:1;min-width:80px;';
+        if (isP) { slot.style.background = '#fff'; slot.style.padding = '6px 6px 24px'; slot.style.borderRadius = '4px'; }
+
+        const layer = document.createElement('div'); layer.className = 'sticker-layer';
+
+        if (photos[i]) {
+          const img = document.createElement('img'); img.src = photos[i]; img.style.borderRadius = isP ? '2px' : '10px';
+          slot.appendChild(img);
+          slot.classList.add('pslot-add');
+          const hov = document.createElement('div'); hov.className = 'slot-hover';
+          const dx = document.createElement('button'); dx.className = 'slot-action'; dx.textContent = '✕';
+          dx.onclick = () => { photos.splice(i, 1); renderStrip(); updateUI(); document.getElementById('snap-btn').disabled = !stream; document.getElementById('save-btn').disabled = true; };
+          hov.appendChild(dx); slot.appendChild(hov);
+        } else {
+          const ph = document.createElement('div'); ph.className = 'empty-label'; ph.textContent = `✨ ${i + 1} ✨`;
+          slot.appendChild(ph);
+        }
+
+        slot.appendChild(layer);
+        slot.onclick = (e) => {
+          if (e.target.closest('.slot-hover') || e.target.classList.contains('sticker-placed')) return;
+          if (!selSticker) return;
+          const r = slot.getBoundingClientRect();
+          addStickerToLayer(layer, selSticker, e.clientX - r.left - 14, e.clientY - r.top - 14);
+        };
+        cont.appendChild(slot);
+      }
+      updateUI();
+    }
+    renderStrip(); updateUI();
+    function addStickerToLayer(layer, emoji, x, y) {
+      const s = document.createElement('div'); s.className = 'sticker-placed'; s.textContent = emoji;
+      s.style.left = x + 'px'; s.style.top = y + 'px';
+      makeDrag(s, layer.parentElement); layer.appendChild(s);
+    }
+    function addTextToLayer(layer, txt, font, color) {
+      const s = document.createElement('div'); s.className = 'sticker-placed';
+      s.textContent = txt; s.style.fontFamily = font; s.style.color = color; s.style.fontSize = '32px';
+      s.style.left = '10px'; s.style.top = '10px'; s.style.whiteSpace = 'nowrap';
+      s.style.textShadow = '0 2px 6px rgba(0,0,0,0.5)';
+      makeDrag(s, layer.parentElement); layer.appendChild(s);
+    }
+    function makeDrag(el, parent) {
+      let ox, oy, drag = false;
+      el.onmousedown = e => {
+        e.stopPropagation(); drag = true; ox = e.clientX - el.offsetLeft; oy = e.clientY - el.offsetTop;
+        document.onmousemove = e2 => {
+          if (!drag) return;
+          el.style.left = Math.max(0, Math.min(e2.clientX - ox, parent.offsetWidth - 24)) + 'px';
+          el.style.top = Math.max(0, Math.min(e2.clientY - oy, parent.offsetHeight - 24)) + 'px';
+        };
+        document.onmouseup = () => { drag = false; document.onmousemove = null; document.onmouseup = null; };
+      };
+      el.ondblclick = () => el.remove();
+    }
+    // EXPORT
+    const saveBtn = document.getElementById('save-btn'), saveDD = document.getElementById('save-dd');
+    saveBtn.onclick = () => saveDD.classList.toggle('open');
+    document.addEventListener('click', e => { if (!e.target.closest('.save-wrap')) saveDD.classList.remove('open'); });
+    async function buildCanvas() {
+      const PW = 200, PH = 150, PAD = 14, PERF = 12, GAP = 6;
+      const cap = document.getElementById('caption').value.trim();
+      const showD = document.getElementById('date-cb').checked;
+      const CH = cap ? 22 : 0, DH = showD ? 12 : 0;
+      const TH = PAD * 2 + maxPhotos * PH + (maxPhotos - 1) * GAP + CH + DH;
+      const sc = document.createElement('canvas'); sc.width = PW + PERF * 2; sc.height = TH;
+      const sx = sc.getContext('2d');
+
+      if (curStripBgUrl) {
+        const bgImg = new Image();
+        bgImg.src = curStripBgUrl;
+        await new Promise(r => { bgImg.onload = r; bgImg.onerror = r; });
+        const pattern = sx.createPattern(bgImg, 'repeat');
+        sx.fillStyle = pattern;
+        sx.fillRect(0, 0, sc.width, TH);
+      } else if (curBorder.cls === 'holo') {
+        const gr = sx.createLinearGradient(0, 0, sc.width, TH);
+        gr.addColorStop(0, '#c0a0ff'); gr.addColorStop(0.33, '#ff9de2'); gr.addColorStop(0.66, '#9de2ff'); gr.addColorStop(1, '#ffd89d');
+        sx.fillStyle = gr;
+        sx.fillRect(0, 0, sc.width, TH);
+      } else {
+        sx.fillStyle = curBorder.bg || '#fff';
+        sx.fillRect(0, 0, sc.width, TH);
+      }
+
+      sx.fillStyle = 'rgba(0,0,0,0.07)';
+      for (let y = 4; y < TH; y += 12) { sx.beginPath(); sx.arc(7, y + 4, 4, 0, Math.PI * 2); sx.fill(); sx.beginPath(); sx.arc(sc.width - 7, y + 4, 4, 0, Math.PI * 2); sx.fill(); }
+      for (let i = 0; i < maxPhotos; i++) {
+        const y = PAD + i * (PH + GAP);
+        if (photos[i]) {
+          const img = new Image(); img.src = photos[i];
+          await new Promise(r => { img.onload = r; img.onerror = r; });
+          if (curLayout === 'p') {
+            sx.fillStyle = '#fff'; sx.fillRect(PERF, y - 4, PW, PH + 20);
+            sx.drawImage(img, PERF, y, PW, PH);
+          } else { sx.drawImage(img, PERF, y, PW, PH); }
+        }
+      }
+      if (cap) {
+        const isDark = (curBorder.bg === '#1a1a2e');
+        sx.fillStyle = isDark ? '#fff' : '#1a1a2e';
+        sx.font = `11px Pacifico`; sx.textAlign = 'center';
+        sx.fillText(cap, sc.width / 2, TH - DH - (DH ? 4 : 6));
+      }
+      if (showD) {
+        sx.fillStyle = '#b0a0c8'; sx.font = '8px monospace'; sx.textAlign = 'center';
+        sx.fillText(new Date().toLocaleDateString(), sc.width / 2, TH - 4);
+      }
+      return sc;
+    }
+    document.getElementById('opt-save').onclick = async () => {
+      const sc = await buildCanvas(); const a = document.createElement('a');
+      a.download = 'purikura-strip.png'; a.href = sc.toDataURL('image/png'); a.click();
+      saveDD.classList.remove('open'); showToast('SAVED 💾');
+    };
+    document.getElementById('opt-copy').onclick = async () => {
+      try { const sc = await buildCanvas(); sc.toBlob(async b => { await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); showToast('COPIED 📋'); }); }
+      catch (e) { showToast('COPY UNAVAILABLE ❌'); }
+      saveDD.classList.remove('open');
+    };
+    document.getElementById('opt-share').onclick = async () => {
+      saveDD.classList.remove('open');
+      showToast('UPLOADING... ⏳');
+      try {
+        const sc = await buildCanvas();
+        sc.toBlob(async b => {
+          const fd = new FormData();
+          fd.append('file', b, 'purikura.png');
+          const r = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fd });
+          const data = await r.json();
+          if (data.status === 'success') {
+            const link = data.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+            prompt('SHARE LINK READY! 🔗 Copy below:', link);
+            showToast('LINK GENERATED ✨');
+          } else {
+            showToast('UPLOAD FAILED ❌');
+          }
+        });
+      }
+      catch (e) { showToast('UPLOAD FAILED ❌'); }
+    };
+    document.getElementById('opt-print').onclick = async () => {
+      const sc = await buildCanvas(); const w = window.open('', '_blank');
+      w.document.write(`<html><head><style>body{margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;}img{max-width:100%;}@media print{@page{size:2in 6in;margin:0;}}</style></head><body><img src="${sc.toDataURL()}"></body></html>`);
+      w.document.close(); w.print(); saveDD.classList.remove('open');
+    };
+    // CONFETTI
+    function fireConfetti() {
+      const colors = ['#c0a0ff', '#ff9de2', '#9de2ff', '#ffd89d', '#ff6eb4', '#7dd3b0'];
+      for (let i = 0; i < 40; i++) {
+        const el = document.createElement('div'); el.className = 'confetti-piece';
+        el.style.cssText = `left:${40 + Math.random() * 20}%;background:${colors[i % colors.length]};
+      animation-duration:${1.5 + Math.random()}s;animation-delay:${Math.random() * 0.5}s;
+      width:${6 + Math.random() * 6}px;height:${6 + Math.random() * 6}px;
+      border-radius:${Math.random() > 0.5 ? '50%' : '2px'};`;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 3000);
+      }
+    }
+    // TOAST
+    function showToast(msg) {
+      const t = document.getElementById('toast'); t.textContent = msg; t.style.opacity = '1';
+      setTimeout(() => t.style.opacity = '0', 2200);
+    }
+    // KEYBOARD
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if (e.code === 'Space') { e.preventDefault(); takeShot(); }
+      if (e.key === 'r' || e.key === 'R') document.getElementById('retake-btn').click();
+      if (e.key === 's' || e.key === 'S') { if (!saveBtn.disabled) saveBtn.click(); }
+      if (e.key === 'f' || e.key === 'F') {
+        const cards = document.getElementById('filter-scroll').querySelectorAll('.fcard');
+        let i = [...cards].findIndex(c => c.classList.contains('active'));
+        cards[(i + 1) % cards.length].click();
+      }
+    });
+
+    // VOICE TRIGGER
+    let recognition = null, voiceActive = false;
+    const voiceBtn = document.getElementById('voice-btn');
+    function initVoice() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { voiceBtn.style.display = 'none'; return; }
+      recognition = new SR();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.onresult = (e) => {
+        if (!voiceActive) return;
+        let heard = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const text = e.results[i][0].transcript.toLowerCase();
+          heard += text + ' ';
+          if ((text.includes('cheese') || text.includes('shoot') || text.includes('snap') || text.includes('picture')) && !shooting && stream) {
+            showToast('📸 VOICE TRIGGERED!');
+            takeShot();
+            recognition.stop();
+            return;
+          }
+        }
+        if (heard.trim().length > 0) {
+          showToast('Heard: "' + heard.trim() + '"');
+        }
+      };
+      recognition.onerror = (e) => {
+        console.error('Speech error:', e.error);
+        if (e.error === 'not-allowed') {
+          showToast('MIC PERMISSION DENIED ❌');
+          voiceActive = false;
+          voiceBtn.innerHTML = '&#127897; VOICE OFF';
+          voiceBtn.style.background = 'var(--white)';
+          voiceBtn.style.color = 'var(--hot-pink)';
+        }
+      };
+      recognition.onend = () => { if (voiceActive) recognition.start(); };
+    }
+    voiceBtn.onclick = () => {
+      if (!recognition) { showToast('VOICE NOT SUPPORTED ❌'); return; }
+      voiceActive = !voiceActive;
+      if (voiceActive) {
+        voiceBtn.innerHTML = '&#127897; SAY CHEESE!';
+        voiceBtn.style.background = 'var(--hot-pink)';
+        voiceBtn.style.color = 'white';
+        try { recognition.start(); } catch (e) { }
+        showToast('VOICE ON &#127897;');
+      } else {
+        voiceBtn.innerHTML = '&#127897; VOICE OFF';
+        voiceBtn.style.background = 'var(--white)';
+        voiceBtn.style.color = 'var(--hot-pink)';
+        recognition.stop();
+        showToast('VOICE OFF');
+      }
+    };
+    initVoice();
+
+    // AUTO START
+    buildFilters();
+    try {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(s => {
+        stream = s; video.srcObject = s;
+        document.getElementById('perm-screen').style.display = 'none';
+        document.getElementById('snap-btn').disabled = false;
+        document.getElementById('burst-btn').disabled = false;
+        document.getElementById('voice-btn').disabled = false;
+        document.getElementById('flip-btn').disabled = false;
+        document.getElementById('timer-sel').disabled = false;
+        thumbLoop(); renderStrip();
+      }).catch(() => { });
+    } catch (e) { }
+
+    // ═══════════════════════════════════════════════════
+    // PARTY MODE — WebRTC multi-user photobooth rooms
+    // ═══════════════════════════════════════════════════
+    let peer = null;
+    let roomId = null;
+    let isHost = false;
+    let peerConnections = {};   // peerId -> { conn (data), call, videoEl }
+    let partyActive = false;
+    const MAX_PEERS = 4; // including self
+
+    const roomModal = document.getElementById('room-modal');
+    const roomInput = document.getElementById('room-input');
+    const roomInfo = document.getElementById('room-info');
+    const displayRoomId = document.getElementById('display-room-id');
+    const videoContainer = document.getElementById('video-container');
+
+    function generateRoomId() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let id = '';
+      for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+      return 'PB-' + id;
+    }
+
+    // Show/hide the modal
+    document.getElementById('party-mode-btn').onclick = () => {
+      roomModal.style.display = 'flex';
+    };
+    document.getElementById('close-modal-btn').onclick = () => {
+      roomModal.style.display = 'none';
+    };
+
+    // ── Create Room (Host) ──
+    document.getElementById('create-room-btn').onclick = async () => {
+      if (!stream) { showToast('ENABLE CAMERA FIRST 📸'); return; }
+      roomId = generateRoomId();
+      roomModal.style.display = 'none';
+      showToast('CREATING ROOM... ⏳');
+
+      try {
+        peer = new Peer(roomId, { debug: 0 });
+
+        peer.on('open', (id) => {
+          isHost = true;
+          partyActive = true;
+          displayRoomId.textContent = id;
+          roomInfo.style.display = 'block';
+          showToast(`ROOM CREATED: ${id} 🎉`);
+          updateVideoGrid();
+        });
+
+        peer.on('call', (call) => {
+          const count = Object.keys(peerConnections).length;
+          if (count >= MAX_PEERS - 1) {
+            call.close();
+            return;
+          }
+          call.answer(stream);
+          handleIncomingCall(call);
+        });
+
+        peer.on('connection', (conn) => {
+          setupDataConnection(conn);
+        });
+
+        peer.on('error', (err) => {
+          console.error('Peer error:', err);
+          if (err.type === 'unavailable-id') {
+            showToast('ROOM ID TAKEN! TRY AGAIN ❌');
+            leaveRoom();
+          } else {
+            showToast('CONNECTION ERROR ❌');
+          }
+        });
+
+      } catch (e) {
+        showToast('FAILED TO CREATE ROOM ❌');
+        console.error(e);
+      }
+    };
+
+    // ── Join Room ──
+    document.getElementById('join-room-btn').onclick = async () => {
+      if (!stream) { showToast('ENABLE CAMERA FIRST 📸'); return; }
+      const targetRoom = roomInput.value.trim().toUpperCase();
+      if (!targetRoom) { showToast('ENTER A ROOM ID ✏️'); return; }
+      roomModal.style.display = 'none';
+      showToast('JOINING ROOM... ⏳');
+
+      const myId = 'PB-' + Math.random().toString(36).substr(2, 8).toUpperCase();
+
+      try {
+        peer = new Peer(myId, { debug: 0 });
+
+        peer.on('open', () => {
+          roomId = targetRoom;
+          isHost = false;
+          partyActive = true;
+          displayRoomId.textContent = roomId;
+          roomInfo.style.display = 'block';
+
+          // Data connection to host
+          const conn = peer.connect(roomId, { reliable: true });
+          setupDataConnection(conn);
+
+          // Media call to host
+          const call = peer.call(roomId, stream);
+          handleOutgoingCall(call, roomId);
+        });
+
+        // Accept calls from other peers (host relays info)
+        peer.on('call', (call) => {
+          call.answer(stream);
+          handleIncomingCall(call);
+        });
+
+        peer.on('connection', (conn) => {
+          setupDataConnection(conn);
+        });
+
+        peer.on('error', (err) => {
+          console.error('Peer error:', err);
+          if (err.type === 'peer-unavailable') {
+            showToast('ROOM NOT FOUND ❌');
+            leaveRoom();
+          } else {
+            showToast('CONNECTION ERROR ❌');
+          }
+        });
+      } catch (e) {
+        showToast('FAILED TO JOIN ❌');
+        console.error(e);
+      }
+    };
+
+    function setupDataConnection(conn) {
+      conn.on('open', () => {
+        if (!peerConnections[conn.peer]) {
+          peerConnections[conn.peer] = { conn: conn, call: null, videoEl: null };
+        } else {
+          peerConnections[conn.peer].conn = conn;
+        }
+        showToast(`FRIEND CONNECTED 🤝`);
+
+        // Host tells new peer about existing peers
+        if (isHost) {
+          const existingPeers = Object.keys(peerConnections).filter(id => id !== conn.peer);
+          conn.send({ type: 'peer-list', peers: existingPeers });
+        }
+      });
+
+      conn.on('data', (data) => {
+        if (data.type === 'peer-list' && !isHost) {
+          // Connect to other peers in the room
+          data.peers.forEach(peerId => {
+            if (!peerConnections[peerId]) {
+              const c = peer.connect(peerId, { reliable: true });
+              setupDataConnection(c);
+              const call = peer.call(peerId, stream);
+              handleOutgoingCall(call, peerId);
+            }
+          });
+        }
+        if (data.type === 'sync-shoot') {
+          // Remote-triggered photo: run local countdown & capture
+          doSyncShot();
+        }
+      });
+
+      conn.on('close', () => {
+        removePeer(conn.peer);
+      });
+    }
+
+    function handleIncomingCall(call) {
+      call.on('stream', (remoteStream) => {
+        addRemoteVideo(call.peer, remoteStream, call);
+        showToast('VIDEO CONNECTED 📹');
+      });
+      call.on('close', () => removePeer(call.peer));
+      call.on('error', () => removePeer(call.peer));
+    }
+
+    function handleOutgoingCall(call, peerId) {
+      call.on('stream', (remoteStream) => {
+        addRemoteVideo(peerId, remoteStream, call);
+        showToast('VIDEO CONNECTED 📹');
+      });
+      call.on('close', () => removePeer(peerId));
+      call.on('error', () => removePeer(peerId));
+    }
+
+    function addRemoteVideo(peerId, remoteStream, call) {
+      // Don't duplicate
+      if (peerConnections[peerId] && peerConnections[peerId].videoEl) return;
+
+      const vid = document.createElement('video');
+      vid.autoplay = true;
+      vid.playsInline = true;
+      vid.muted = false;
+      vid.srcObject = remoteStream;
+      vid.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      vid.id = 'peer-video-' + peerId;
+
+      // Add name label
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:relative;overflow:hidden;';
+      wrapper.id = 'peer-wrap-' + peerId;
+      const label = document.createElement('div');
+      label.style.cssText = 'position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,0.6);color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-family:DotGothic16,monospace;z-index:5;';
+      label.textContent = '🟢 FRIEND';
+      wrapper.appendChild(vid);
+      wrapper.appendChild(label);
+      videoContainer.appendChild(wrapper);
+
+      if (!peerConnections[peerId]) peerConnections[peerId] = {};
+      peerConnections[peerId].videoEl = wrapper;
+      peerConnections[peerId].call = call;
+
+      updateVideoGrid();
+    }
+
+    function removePeer(peerId) {
+      const p = peerConnections[peerId];
+      if (p) {
+        if (p.videoEl) p.videoEl.remove();
+        if (p.call) try { p.call.close(); } catch (e) {}
+        if (p.conn) try { p.conn.close(); } catch (e) {}
+        delete peerConnections[peerId];
+      }
+      updateVideoGrid();
+      showToast('FRIEND LEFT 👋');
+    }
+
+    function updateVideoGrid() {
+      const total = 1 + Object.keys(peerConnections).filter(k => peerConnections[k].videoEl).length;
+      if (total === 1) {
+        videoContainer.style.gridTemplateColumns = '1fr';
+        videoContainer.style.gridTemplateRows = '1fr';
+      } else if (total === 2) {
+        videoContainer.style.gridTemplateColumns = '1fr 1fr';
+        videoContainer.style.gridTemplateRows = '1fr';
+      } else if (total <= 4) {
+        videoContainer.style.gridTemplateColumns = '1fr 1fr';
+        videoContainer.style.gridTemplateRows = '1fr 1fr';
+      }
+    }
+
+    // ── Synchronized Shoot ──
+    // Override snap button when in party mode to sync across peers
+    const origTakeShot = takeShot;
+    const origSnap = document.getElementById('snap-btn').onclick;
+
+    document.getElementById('snap-btn').onclick = () => {
+      if (partyActive) {
+        // Broadcast shoot command to all peers
+        Object.values(peerConnections).forEach(p => {
+          if (p.conn && p.conn.open) {
+            p.conn.send({ type: 'sync-shoot' });
+          }
+        });
+        // Also shoot locally
+        doSyncShot();
+      } else {
+        takeShot();
+      }
+    };
+
+    async function doSyncShot() {
+      if (shooting || !stream || photos.length >= maxPhotos) return;
+      shooting = true;
+      document.getElementById('snap-btn').classList.add('pressed');
+      document.getElementById('snap-btn').disabled = true;
+      await countdown(); doFlash(); shutter();
+
+      // Capture the entire video container (all feeds) as one photo
+      if (partyActive && Object.keys(peerConnections).length > 0) {
+        photos.push(await captureGrid());
+      } else {
+        photos.push(capture());
+      }
+
+      renderStrip(); updateUI();
+      document.getElementById('snap-btn').classList.remove('pressed');
+      if (photos.length >= maxPhotos) {
+        document.getElementById('save-btn').disabled = false;
+        fireConfetti(); showToast('STRIP COMPLETE 🎉');
+        beep(660, 0.2, 0.2); setTimeout(() => beep(880, 0.2, 0.2), 200);
+      } else {
+        document.getElementById('snap-btn').disabled = false;
+      }
+      shooting = false;
+    }
+
+    async function captureGrid() {
+      // Use html2canvas-style approach: draw each video onto a combined canvas
+      const allVideos = videoContainer.querySelectorAll('video');
+      const count = allVideos.length;
+      const cols = count <= 1 ? 1 : 2;
+      const rows = Math.ceil(count / cols);
+      const cellW = 640, cellH = 480;
+      const gc = document.createElement('canvas');
+      gc.width = cellW * cols;
+      gc.height = cellH * rows;
+      const gctx = gc.getContext('2d');
+
+      // Apply current filter
+      const b = document.getElementById('sl-b').value, cc = document.getElementById('sl-c').value,
+        s = document.getElementById('sl-s').value, h = document.getElementById('sl-h').value;
+      const m = `brightness(${b}%) contrast(${cc}%) saturate(${s}%) hue-rotate(${h}deg)`;
+      gctx.filter = curFilter === 'none' ? m : curFilter + ' ' + m;
+
+      allVideos.forEach((v, i) => {
+        const col = i % cols, row = Math.floor(i / cols);
+        const x = col * cellW, y = row * cellH;
+        // Draw with cover-fit
+        const vw = v.videoWidth || cellW, vh = v.videoHeight || cellH;
+        const scale = Math.max(cellW / vw, cellH / vh);
+        const sw = cellW / scale, sh = cellH / scale;
+        const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+        gctx.drawImage(v, sx, sy, sw, sh, x, y, cellW, cellH);
+
+        // Draw subtle divider lines
+        gctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        gctx.lineWidth = 2;
+        if (col > 0) { gctx.beginPath(); gctx.moveTo(x, y); gctx.lineTo(x, y + cellH); gctx.stroke(); }
+        if (row > 0) { gctx.beginPath(); gctx.moveTo(x, y); gctx.lineTo(x + cellW, y); gctx.stroke(); }
+      });
+
+      return gc.toDataURL('image/jpeg', 0.92);
+    }
+
+    // ── Leave Room ──
+    document.getElementById('leave-room-btn').onclick = leaveRoom;
+
+    function leaveRoom() {
+      Object.keys(peerConnections).forEach(removePeer);
+      peerConnections = {};
+      if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+      roomId = null;
+      isHost = false;
+      partyActive = false;
+      roomInfo.style.display = 'none';
+      // Remove remote video wrappers
+      videoContainer.querySelectorAll('[id^="peer-wrap-"]').forEach(el => el.remove());
+      updateVideoGrid();
+      showToast('LEFT ROOM 👋');
+    }
+  </script>
+</body>
+
+</html>
