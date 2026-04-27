@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <link rel="manifest" href="manifest.json">
   <title>PURIKURA STUDIO &#9733;</title>
   <link rel="stylesheet" href="style.css">
@@ -25,11 +25,11 @@
   <div id="app">
     <header>
       <div class="logo">PHOTO-BOOTH &#9733;</div>
-      <div style="display:flex;justify-content:center;margin-top:12px;gap:15px;flex-wrap:wrap;">
+      <div class="header-ctrls">
         <div class="coin">
           <div class="coin-dot"></div>&#9733; READY &middot; INSERT COIN &middot; &yen;100 &#9733;
         </div>
-        <button id="party-mode-btn" class="cpill-btn" style="background:var(--purple);color:white;border-color:#111;">
+        <button id="party-mode-btn" class="cpill-btn party-btn">
           &#127882; PARTY MODE
         </button>
       </div>
@@ -66,6 +66,7 @@
           </div>
           <canvas id="grain-c"
             style="position:absolute;inset:15px;pointer-events:none;z-index:6;opacity:0.05;mix-blend-mode:screen;"></canvas>
+          <div id="filter-overlay"></div>
           <div class="live-badge">
             <div class="live-dot"></div>&#9679; LIVE
           </div>
@@ -363,23 +364,175 @@
       { n: 'COOL FILM', css: 'hue-rotate(175deg) saturate(90%) contrast(105%) brightness(102%) sepia(10%)' },
       { n: 'DUSK', css: 'sepia(30%) saturate(120%) hue-rotate(320deg) contrast(108%) brightness(95%)' }
     ];
-    let curFilter = 'none';
+    const FILTER_PACK = [
+      { n: 'NATURAL', css: 'none', tx: null },
+      { n: 'PORTRA 400', css: 'brightness(102%) contrast(98%) saturate(105%) sepia(14%) hue-rotate(-6deg)', tx: 'softBloom' },
+      { n: 'GOLD 200', css: 'brightness(106%) contrast(97%) saturate(112%) sepia(22%) hue-rotate(-10deg)', tx: 'agedPrint' },
+      { n: 'SUPERIA 400', css: 'brightness(103%) contrast(102%) saturate(118%) sepia(9%) hue-rotate(-16deg)', tx: 'grainDust' },
+      { n: 'FUJI 400H', css: 'brightness(108%) contrast(92%) saturate(94%) sepia(6%) hue-rotate(-18deg)', tx: 'pastelWash' },
+      { n: 'POLAROID 600', css: 'brightness(112%) contrast(90%) saturate(88%) sepia(20%) hue-rotate(4deg)', tx: 'instantFade' },
+      { n: 'CAFE NOIR', css: 'brightness(94%) contrast(108%) saturate(82%) sepia(28%) hue-rotate(-6deg)', tx: 'noirDust' },
+      { n: 'CINE 800T', css: 'brightness(97%) contrast(110%) saturate(108%) sepia(12%) hue-rotate(168deg)', tx: 'nightHalation' },
+      { n: 'ILFORD HP5', css: 'grayscale(100%) brightness(97%) contrast(132%)', tx: 'monoGrain' },
+      { n: 'SEPIA SILK', css: 'brightness(104%) contrast(90%) saturate(78%) sepia(48%)', tx: 'sepiaPaper' }
+    ];
+    const FILTER_TEXTURES = {
+      softBloom: {
+        opacity: 0.34,
+        blend: 'screen',
+        bg: 'radial-gradient(circle at 24% 18%, rgba(255,255,255,0.20), transparent 18%), radial-gradient(circle at 78% 14%, rgba(255,244,220,0.16), transparent 20%), linear-gradient(180deg, rgba(255,240,220,0.10), rgba(255,255,255,0.02) 40%, rgba(248,220,205,0.10))'
+      },
+      agedPrint: {
+        opacity: 0.36,
+        blend: 'multiply',
+        bg: 'linear-gradient(180deg, rgba(154,112,62,0.16), rgba(255,255,255,0.03) 34%, rgba(110,78,44,0.14)), radial-gradient(circle at 82% 20%, rgba(141,95,42,0.16), transparent 18%), repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 2px, rgba(0,0,0,0.03) 2px 4px)'
+      },
+      grainDust: {
+        opacity: 0.30,
+        blend: 'soft-light',
+        bg: 'radial-gradient(circle at 15% 22%, rgba(255,255,255,0.18) 0 1px, transparent 1.8px), radial-gradient(circle at 64% 42%, rgba(0,0,0,0.14) 0 1px, transparent 1.8px), radial-gradient(circle at 82% 76%, rgba(255,255,255,0.16) 0 1.2px, transparent 2px), repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 2px, rgba(0,0,0,0.02) 2px 4px)'
+      },
+      pastelWash: {
+        opacity: 0.28,
+        blend: 'screen',
+        bg: 'linear-gradient(180deg, rgba(220,248,230,0.16), rgba(255,255,255,0.04) 45%, rgba(225,235,255,0.14)), radial-gradient(circle at 22% 16%, rgba(255,255,255,0.18), transparent 18%), radial-gradient(circle at 86% 22%, rgba(202,236,216,0.14), transparent 20%)'
+      },
+      instantFade: {
+        opacity: 0.34,
+        blend: 'screen',
+        bg: 'linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02) 30%, rgba(245,224,210,0.14)), radial-gradient(circle at 50% 110%, rgba(255,222,188,0.16), transparent 38%), repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 3px, rgba(0,0,0,0.02) 3px 6px)'
+      },
+      noirDust: {
+        opacity: 0.38,
+        blend: 'multiply',
+        bg: 'radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.28) 100%), radial-gradient(circle at 24% 18%, rgba(255,255,255,0.10) 0 1px, transparent 2px), radial-gradient(circle at 74% 72%, rgba(255,255,255,0.12) 0 1px, transparent 2px)'
+      },
+      nightHalation: {
+        opacity: 0.34,
+        blend: 'screen',
+        bg: 'radial-gradient(circle at 18% 16%, rgba(255,112,82,0.18), transparent 18%), radial-gradient(circle at 82% 22%, rgba(92,146,255,0.16), transparent 20%), radial-gradient(circle at 50% 88%, rgba(255,210,158,0.12), transparent 24%), repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 2px, rgba(0,0,0,0.04) 2px 4px)'
+      },
+      monoGrain: {
+        opacity: 0.24,
+        blend: 'overlay',
+        bg: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.12) 0 1px, transparent 2px), radial-gradient(circle at 70% 60%, rgba(0,0,0,0.12) 0 1px, transparent 2px), repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 2px, rgba(0,0,0,0.03) 2px 4px)'
+      },
+      sepiaPaper: {
+        opacity: 0.40,
+        blend: 'multiply',
+        bg: 'linear-gradient(180deg, rgba(174,132,86,0.18), rgba(255,250,240,0.04) 36%, rgba(132,94,58,0.16)), radial-gradient(circle at 80% 14%, rgba(120,86,52,0.16), transparent 16%), radial-gradient(circle at 18% 80%, rgba(255,255,255,0.08), transparent 18%)'
+      }
+    };
+    let curFilterMeta = FILTER_PACK[0];
+    let curFilter = curFilterMeta.css;
     const fCanvases = [];
     function buildFilters() {
       const row = document.getElementById('filter-scroll');
-      FILTERS.forEach((f, i) => {
+      row.innerHTML = '';
+      FILTER_PACK.forEach((f, i) => {
         const card = document.createElement('div'); card.className = 'fcard' + (i === 0 ? ' active' : '');
         const fc = document.createElement('canvas'); fc.width = 64; fc.height = 48;
-        fCanvases.push({ c: fc, f: f.css });
+        fCanvases.push({ c: fc, f });
         const nm = document.createElement('div'); nm.className = 'fcard-name'; nm.textContent = f.n;
         card.appendChild(fc); card.appendChild(nm);
         card.onclick = () => {
-          curFilter = f.css; applyVF();
+          curFilterMeta = f;
+          curFilter = f.css;
+          applyVF();
           row.querySelectorAll('.fcard').forEach(x => x.classList.remove('active'));
           card.classList.add('active');
         };
         row.appendChild(card);
       });
+    }
+    function drawTexturePass(ctx, w, h, txName) {
+      if (!txName) return;
+      const tx = FILTER_TEXTURES[txName];
+      if (!tx) return;
+      ctx.save();
+      ctx.globalAlpha = tx.opacity ?? 0.25;
+      ctx.globalCompositeOperation = tx.blend || 'overlay';
+
+      if (txName === 'softBloom' || txName === 'pastelWash' || txName === 'instantFade') {
+        const wash = ctx.createLinearGradient(0, 0, 0, h);
+        wash.addColorStop(0, txName === 'pastelWash' ? 'rgba(221,247,233,0.95)' : 'rgba(255,243,226,0.9)');
+        wash.addColorStop(0.5, 'rgba(255,255,255,0.15)');
+        wash.addColorStop(1, txName === 'instantFade' ? 'rgba(243,219,201,0.75)' : 'rgba(246,223,209,0.7)');
+        ctx.fillStyle = wash;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      if (txName === 'agedPrint' || txName === 'sepiaPaper') {
+        const stain = ctx.createLinearGradient(0, 0, 0, h);
+        stain.addColorStop(0, 'rgba(154,112,62,0.85)');
+        stain.addColorStop(0.35, 'rgba(255,255,255,0.08)');
+        stain.addColorStop(1, 'rgba(115,79,46,0.75)');
+        ctx.fillStyle = stain;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      if (txName === 'nightHalation') {
+        ['rgba(255,112,82,0.55)', 'rgba(92,146,255,0.5)', 'rgba(255,210,158,0.38)'].forEach((color, i) => {
+          const gx = [0.18, 0.82, 0.5][i] * w;
+          const gy = [0.16, 0.22, 0.88][i] * h;
+          const glow = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(w, h) * 0.22);
+          glow.addColorStop(0, color);
+          glow.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = glow;
+          ctx.fillRect(0, 0, w, h);
+        });
+      }
+
+      if (txName === 'noirDust') {
+        const vignette = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.28, w / 2, h / 2, Math.max(w, h) * 0.7);
+        vignette.addColorStop(0, 'rgba(255,255,255,0)');
+        vignette.addColorStop(1, 'rgba(0,0,0,0.9)');
+        ctx.fillStyle = vignette;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      if (txName === 'monoGrain' || txName === 'grainDust' || txName === 'noirDust' || txName === 'agedPrint' || txName === 'sepiaPaper') {
+        for (let i = 0; i < Math.max(24, Math.floor((w * h) / 180)); i++) {
+          const px = Math.random() * w;
+          const py = Math.random() * h;
+          const r = Math.random() * 1.4 + 0.3;
+          ctx.fillStyle = i % 3 === 0 ? 'rgba(255,255,255,0.34)' : 'rgba(0,0,0,0.28)';
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      if (txName === 'grainDust' || txName === 'monoGrain' || txName === 'instantFade' || txName === 'nightHalation') {
+        for (let y = 0; y < h; y += 4) {
+          ctx.fillStyle = y % 8 === 0 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+          ctx.fillRect(0, y, w, 1);
+        }
+      }
+
+      if (txName === 'softBloom' || txName === 'pastelWash' || txName === 'instantFade') {
+        const bloom = ctx.createRadialGradient(w * 0.22, h * 0.16, 0, w * 0.22, h * 0.16, Math.max(w, h) * 0.24);
+        bloom.addColorStop(0, 'rgba(255,255,255,0.44)');
+        bloom.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = bloom;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      ctx.restore();
+    }
+    function applyTextureOverlay() {
+      const overlay = document.getElementById('filter-overlay');
+      if (!overlay) return;
+      const tx = FILTER_TEXTURES[curFilterMeta?.tx];
+      if (!tx) {
+        overlay.style.opacity = '0';
+        overlay.style.backgroundImage = 'none';
+        return;
+      }
+      overlay.style.mixBlendMode = tx.blend || 'overlay';
+      overlay.style.opacity = String(tx.opacity ?? 0.25);
+      overlay.style.backgroundImage = tx.bg;
+      overlay.style.backgroundSize = 'cover';
     }
     function applyVF() {
       const b = document.getElementById('sl-b').value, cc = document.getElementById('sl-c').value,
@@ -388,6 +541,7 @@
       const fStr = curFilter === 'none' ? m : curFilter + ' ' + m;
       video.style.filter = fStr;
       bgCanvas.style.filter = fStr;
+      applyTextureOverlay();
       const z = document.getElementById('sl-z').value;
       const tStr = `scale(${z / 100})${flipped ? ' scaleX(-1)' : ''}`;
       video.style.transform = tStr;
@@ -395,7 +549,14 @@
     }
     function thumbLoop() {
       if (!video.srcObject) { requestAnimationFrame(thumbLoop); return; }
-      fCanvases.forEach(({ c, f }) => { const x = c.getContext('2d'); x.filter = f; x.drawImage(video, 0, 0, 64, 48); });
+      fCanvases.forEach(({ c, f }) => {
+        const x = c.getContext('2d');
+        x.clearRect(0, 0, 64, 48);
+        x.filter = f.css;
+        x.drawImage(video, 0, 0, 64, 48);
+        x.filter = 'none';
+        drawTexturePass(x, 64, 48, f.tx);
+      });
       requestAnimationFrame(thumbLoop);
     }
     // SLIDERS
@@ -406,8 +567,20 @@
     let drawerOpen = false, activeTab = 'filters';
     const drawer = document.getElementById('drawer');
     const toggle = document.getElementById('drawer-toggle');
-    function openDrawer() { drawerOpen = true; drawer.style.height = '320px'; toggle.classList.add('open'); toggle.textContent = '? CLOSE'; }
-    function closeDrawer() { drawerOpen = false; drawer.style.height = '70px'; toggle.classList.remove('open'); toggle.textContent = '? OPEN'; }
+    function openDrawer() { 
+      drawerOpen = true; 
+      const h = window.innerWidth <= 850 ? '280px' : '320px';
+      drawer.style.height = h; 
+      toggle.classList.add('open'); 
+      toggle.textContent = '✕ CLOSE'; 
+    }
+    function closeDrawer() { 
+      drawerOpen = false; 
+      const h = window.innerWidth <= 850 ? '60px' : '70px';
+      drawer.style.height = h; 
+      toggle.classList.remove('open'); 
+      toggle.textContent = '▲ OPEN'; 
+    }
     toggle.onclick = () => { if (drawerOpen) closeDrawer(); else openDrawer(); };
     document.querySelectorAll('.drawer-tab').forEach(t => {
       t.onclick = () => {
@@ -565,13 +738,33 @@
     applyStripBg();
     // LAYOUT
     let curLayout = 'v';
+    const smallLayoutMedia = window.matchMedia('(max-width: 500px)');
+    function syncLayoutMode() {
+      const smallOnlyVertical = smallLayoutMedia.matches;
+      document.querySelectorAll('.laypill').forEach(p => {
+        const locked = smallOnlyVertical && p.dataset.lay !== 'v';
+        p.classList.toggle('locked', locked);
+      });
+      if (smallOnlyVertical && curLayout !== 'v') {
+        curLayout = 'v';
+        document.querySelectorAll('.laypill').forEach(x => x.classList.toggle('active', x.dataset.lay === 'v'));
+        renderStrip();
+      }
+    }
     document.querySelectorAll('.laypill').forEach(p => {
       p.onclick = () => {
+        if (smallLayoutMedia.matches && p.dataset.lay !== 'v') return;
         curLayout = p.dataset.lay;
         document.querySelectorAll('.laypill').forEach(x => x.classList.remove('active'));
         p.classList.add('active'); renderStrip();
       };
     });
+    if (typeof smallLayoutMedia.addEventListener === 'function') {
+      smallLayoutMedia.addEventListener('change', syncLayoutMode);
+    } else if (typeof smallLayoutMedia.addListener === 'function') {
+      smallLayoutMedia.addListener(syncLayoutMode);
+    }
+    syncLayoutMode();
     // PASTEL TEXT COLORS
     const PASTELS = ['#c084fc', '#ff6eb4', '#ffb347', '#7dd3b0', '#60a5fa', '#ff8fab', '#ffd166', '#06d6a0', '#4d96ff', '#1a1a2e', '#ffffff', '#ff4d6d', '#8ecae6', '#b8f2e6'];
     let txtColor = PASTELS[0];
@@ -801,6 +994,8 @@
 
       const sourceNode = (bgMode !== 'none' && bgCanvas.style.display !== 'none') ? bgCanvas : video;
       capX.drawImage(sourceNode, 0, 0, 1280, 960);
+      capX.filter = 'none';
+      drawTexturePass(capX, 1280, 960, curFilterMeta?.tx);
 
       if (flipped) capX.setTransform(1, 0, 0, 1, 0, 0);
       return capC.toDataURL('image/jpeg', 0.92);
@@ -1510,6 +1705,8 @@
          gctx.beginPath(); gctx.moveTo(640, 0); gctx.lineTo(640, 960); gctx.stroke();
          gctx.beginPath(); gctx.moveTo(0, 480); gctx.lineTo(1280, 480); gctx.stroke();
       }
+      gctx.filter = 'none';
+      drawTexturePass(gctx, 1280, 960, curFilterMeta?.tx);
 
       function drawCover(ctx, vid, x, y, w, h) {
          // Also handle bgCanvas for the local video if segmentation is active!
