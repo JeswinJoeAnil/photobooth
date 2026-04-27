@@ -52,7 +52,7 @@
       </div>
     </div>
 
-    <div class="main">
+    <div class="main" id="capture-page">
       <!-- LEFT: CAMERA -->
       <div>
         <div class="cam-card">
@@ -130,6 +130,7 @@
           <div class="ctrl-row">
             <button class="cpill-btn" id="voice-btn" disabled>&#127897; VOICE OFF</button>
             <button class="cpill-btn" id="burst-btn" disabled>&#9889; BURST</button>
+            <button class="cpill-btn" id="upload-btn">&#128228; UPLOAD</button>
             <button class="cpill-btn" id="retake-btn">&#8634; RETAKE</button>
           </div>
         </div>
@@ -140,8 +141,7 @@
         </div>
       </div>
 
-      <!-- RIGHT: STRIP -->
-      <div>
+      <div class="capture-side">
         <div class="strip-card">
           <div
             style="font-family:'DotGothic16',monospace;font-size:1.4rem;font-weight:bold;margin-bottom:15px;text-align:center;">
@@ -150,11 +150,46 @@
           <div class="shot-dots" id="shot-dots"></div>
         </div>
 
-        <div style="margin-top:15px;">
-          <label style="font-size:1.1rem;font-weight:bold;display:block;margin-bottom:8px;">&#9999; CAPTION</label>
-          <input class="caption-inp" id="caption" placeholder="write something cute... &#9733;" maxlength="28">
-        </div>
+        <button class="save-btn" id="go-editor-btn" disabled style="margin-top:18px;">CUSTOMIZE STRIP &#10140;</button>
+      </div>
+    </div>
+  </div>
 
+  <div id="upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2200;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--white);border:var(--y2k-border);box-shadow:var(--y2k-shadow);padding:26px;border-radius:16px;max-width:560px;width:100%;">
+      <h2 style="font-family:'DotGothic16';text-align:center;color:var(--hot-pink);margin-bottom:10px;">UPLOAD 3 PHOTOS</h2>
+      <p style="text-align:center;font-weight:bold;margin-bottom:18px;">Add three images, then personalize your strip.</p>
+      <div class="upload-grid">
+        <label class="upload-tile"><span>PHOTO 1</span><input type="file" class="upload-slot" accept="image/*"></label>
+        <label class="upload-tile"><span>PHOTO 2</span><input type="file" class="upload-slot" accept="image/*"></label>
+        <label class="upload-tile"><span>PHOTO 3</span><input type="file" class="upload-slot" accept="image/*"></label>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:20px;">
+        <button id="upload-cancel-btn" class="cpill-btn" style="flex:1;">CANCEL</button>
+        <button id="upload-done-btn" class="save-btn" style="flex:1;" disabled>PERSONALIZE</button>
+      </div>
+    </div>
+  </div>
+
+  <section id="editor-page" class="editor-page" aria-hidden="true">
+    <div class="editor-shell">
+      <div class="editor-stage">
+        <div class="editor-topbar">
+          <button class="cpill-btn" id="back-to-camera-btn">&#8592; CAMERA</button>
+          <div class="editor-title">&#128247; CUSTOMIZE PHOTO STRIP</div>
+        </div>
+        <div class="editor-strip-wrap">
+          <div class="strip-card editor-strip-card">
+            <div
+              style="font-family:'DotGothic16',monospace;font-size:1.4rem;font-weight:bold;margin-bottom:15px;text-align:center;">
+              &#128247; PHOTO STRIP</div>
+            <div class="strip-photos" id="editor-strip-photos"></div>
+            <div class="strip-decor-layer" id="strip-decor-layer"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="editor-tools">
         <div class="save-wrap">
           <div class="save-dropdown" id="save-dd">
             <button class="save-opt" id="opt-save">&#11015; Save PNG</button>
@@ -165,17 +200,11 @@
           <button class="save-btn" id="save-btn" disabled>&#128424; PRINT &amp; SAVE &#9662;</button>
         </div>
 
-
-        <div
-          style="margin-top:20px;background:#fff;border:3px solid #111;border-radius:12px;padding:15px;box-shadow:3px 3px 0 #111;">
-          <div style="font-family:'DotGothic16',monospace;font-size:1.3rem;font-weight:bold;margin-bottom:12px;">
-            &#127912; BORDER / BG</div>
+        <div class="editor-panel">
+          <div class="tool-title">&#127912; STRIP BORDER / BG</div>
           <div class="bswatch-row" id="bswatches"></div>
-          <div class="bgswatch-row" id="bgswatches"
-            style="display:flex;gap:8px;overflow-x:auto;padding-bottom:10px;margin-top:10px;align-items:center;">
-            <label class="bgswatch"
-              style="display:flex;align-items:center;justify-content:center;background:#eee;font-size:1.5rem;"
-              title="Custom Image">
+          <div class="bgswatch-row" id="bgswatches">
+            <label class="bgswatch upload-bg" title="Custom Image">
               + <input type="file" id="strip-bg-inp" accept="image/*" style="display:none;">
             </label>
           </div>
@@ -184,15 +213,47 @@
             <div class="laypill" data-lay="p">POLAR</div>
             <div class="laypill" data-lay="h">WIDE</div>
           </div>
-          <label
-            style="display:flex;align-items:center;gap:12px;margin-top:15px;font-size:1.1rem;font-weight:bold;cursor:pointer;">
-            <input type="checkbox" id="date-cb" style="width:20px;height:20px;accent-color:#ff007f;"> &#128197; DATE
-            STAMP
+          <label class="date-label">
+            <input type="checkbox" id="date-cb"> &#128197; DATE STAMP
           </label>
         </div>
-      </div>
+
+        <div class="editor-panel">
+          <div class="tool-title">&#9999; TEXT</div>
+          <input class="caption-inp" id="caption" placeholder="bottom caption..." maxlength="28">
+          <div class="text-tool-row">
+            <input type="text" id="txt-inp" placeholder="Type movable text...">
+            <select id="txt-font">
+              <option value="'M PLUS Rounded 1c'">ROUND</option>
+              <option value="'DotGothic16'">PIXEL</option>
+              <option value="'Pacifico'">SCRIPT</option>
+              <option value="'Fredoka'">BUBBLE</option>
+              <option value="'Cherry Bomb One'">POP</option>
+              <option value="'Concert One'">PARTY</option>
+              <option value="'Caveat Brush'">BRUSH</option>
+              <option value="'Permanent Marker'">MARKER</option>
+              <option value="Georgia">SERIF</option>
+              <option value="Impact">BOLD</option>
+              <option value="'Comic Sans MS'">COMIC</option>
+            </select>
+            <button id="add-txt-btn">ADD</button>
+          </div>
+          <div class="pwatch-row" id="pwatches"></div>
+        </div>
+
+        <div class="editor-panel">
+          <div class="tool-title">&#10024; EMOJIS / STICKERS</div>
+          <div class="stab-row" id="stab-row"></div>
+          <div class="sbubbles" id="sbubbles"></div>
+        </div>
+
+        <div class="editor-panel">
+          <div class="tool-title">&#128444; FRAMES</div>
+          <div class="frames-grid" id="frames-grid"></div>
+        </div>
+      </aside>
     </div>
-  </div>
+  </section>
 
   <!-- DRAWER -->
   <div class="drawer" id="drawer">
@@ -201,9 +262,6 @@
         <button class="drawer-tab active" data-tab="filters">&#127912; FILTERS</button>
         <button class="drawer-tab" data-tab="bg">&#127748; BACKGROUND</button>
         <button class="drawer-tab" data-tab="adjust">&#128295; ADJUST</button>
-        <button class="drawer-tab" data-tab="stickers">&#10024; STICKERS</button>
-        <button class="drawer-tab" data-tab="frames">&#128444; FRAMES</button>
-        <button class="drawer-tab" data-tab="text">&#9999; TEXT</button>
       </div>
       <button class="drawer-toggle" id="drawer-toggle">&#9652; OPEN</button>
     </div>
@@ -235,30 +293,6 @@
           <label>Zoom <input type="range" id="sl-z" min="100" max="200" value="100"></label>
           <label>Vignette <input type="range" id="sl-v" min="0" max="100" value="0"></label>
           <label>Film Grain <input type="range" id="sl-g" min="0" max="100" value="5"></label>
-        </div>
-      </div>
-      <div class="tab-pane" id="tab-stickers">
-        <div class="stab-row" id="stab-row"></div>
-        <div class="sbubbles" id="sbubbles"></div>
-      </div>
-      <div class="tab-pane" id="tab-frames">
-        <div class="frames-grid" id="frames-grid"></div>
-      </div>
-      <div class="tab-pane" id="tab-text">
-        <div style="padding:10px;">
-          <div style="display:flex;gap:10px;margin-bottom:15px;">
-            <input type="text" id="txt-inp" placeholder="Type here..."
-              style="flex:1;padding:8px;border:2px solid #111;border-radius:4px;font-family:'M PLUS Rounded 1c';">
-            <select id="txt-font" style="padding:8px;border:2px solid #111;border-radius:4px;font-weight:bold;">
-              <option value="'M PLUS Rounded 1c'">ROUND</option>
-              <option value="'DotGothic16'">PIXEL</option>
-              <option value="'Pacifico'">SCRIPT</option>
-            </select>
-            <button id="add-txt-btn"
-              style="padding:8px 12px;background:#111;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer;">ADD</button>
-          </div>
-          <div style="margin-bottom:10px;font-weight:bold;font-family:'DotGothic16';">TEXT COLOR</div>
-          <div class="pwatch-row" id="pwatches"></div>
         </div>
       </div>
     </div>
@@ -454,7 +488,8 @@
     let curStripBgUrl = null;
 
     function applyStripBg() {
-      const scard = document.querySelector('.strip-card');
+      const cards = document.querySelectorAll('.strip-card');
+      cards.forEach(scard => {
       if (curStripBgUrl) {
         scard.style.background = `url("${curStripBgUrl}") repeat`;
         scard.style.backgroundSize = 'auto'; // Use original size for repeating patterns
@@ -464,6 +499,7 @@
           scard.style.background = 'linear-gradient(45deg, #c0a0ff, #ff9de2, #9de2ff, #ffd89d)';
         }
       }
+      });
     }
 
     function buildSwatches() {
@@ -537,10 +573,11 @@
       };
     });
     // PASTEL TEXT COLORS
-    const PASTELS = ['#c084fc', '#ff6eb4', '#ffb347', '#7dd3b0', '#60a5fa', '#1a1a2e', '#fff'];
+    const PASTELS = ['#c084fc', '#ff6eb4', '#ffb347', '#7dd3b0', '#60a5fa', '#ff8fab', '#ffd166', '#06d6a0', '#4d96ff', '#1a1a2e', '#ffffff', '#ff4d6d', '#8ecae6', '#b8f2e6'];
     let txtColor = PASTELS[0];
     function buildPastels() {
       const row = document.getElementById('pwatches');
+      row.innerHTML = '';
       PASTELS.forEach(c => {
         const s = document.createElement('div'); s.className = 'pswatch' + (c === txtColor ? ' active' : '');
         s.style.background = c; if (c === '#fff') s.style.border = '1.5px solid #ddd';
@@ -552,12 +589,75 @@
     document.getElementById('add-txt-btn').onclick = () => {
       const t = document.getElementById('txt-inp').value.trim(); if (!t) return;
       const f = document.getElementById('txt-font').value;
-      const slots = document.querySelectorAll('.pslot');
-      const layer = slots[0] ? slots[0].querySelector('.sticker-layer') : null;
-      if (layer) { addTextToLayer(layer, t, f, txtColor); }
+      addStripDecoration({ type: 'text', value: t, font: f, color: txtColor, x: 12, y: 12 });
       document.getElementById('txt-inp').value = '';
       showToast('TEXT ADDED 📝');
     };
+    const capturePage = document.getElementById('capture-page');
+    const editorPage = document.getElementById('editor-page');
+    const uploadModal = document.getElementById('upload-modal');
+    const uploadSlots = [...document.querySelectorAll('.upload-slot')];
+    const uploadDoneBtn = document.getElementById('upload-done-btn');
+    let stripDecorations = [];
+
+    function showEditor() {
+      if (photos.length < maxPhotos) { showToast('ADD 3 PHOTOS FIRST'); return; }
+      capturePage.style.display = 'none';
+      drawer.style.display = 'none';
+      editorPage.classList.add('active');
+      editorPage.setAttribute('aria-hidden', 'false');
+      saveBtn.disabled = false;
+      renderStrip();
+      setTimeout(positionDecorLayer, 40);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function showCamera() {
+      editorPage.classList.remove('active');
+      editorPage.setAttribute('aria-hidden', 'true');
+      capturePage.style.display = '';
+      drawer.style.display = '';
+      saveDD.classList.remove('open');
+      renderStrip();
+    }
+    document.getElementById('go-editor-btn').onclick = showEditor;
+    document.getElementById('back-to-camera-btn').onclick = showCamera;
+
+    document.getElementById('upload-btn').onclick = () => {
+      uploadSlots.forEach((inp, i) => {
+        inp.value = '';
+        inp.closest('.upload-tile').classList.remove('filled');
+        inp.closest('.upload-tile').querySelector('span').textContent = `PHOTO ${i + 1}`;
+      });
+      uploadDoneBtn.disabled = true;
+      uploadModal.style.display = 'flex';
+    };
+    document.getElementById('upload-cancel-btn').onclick = () => uploadModal.style.display = 'none';
+    uploadSlots.forEach(inp => {
+      inp.onchange = () => {
+        const tile = inp.closest('.upload-tile');
+        if (inp.files[0]) {
+          tile.classList.add('filled');
+          tile.querySelector('span').textContent = inp.files[0].name.slice(0, 18);
+        }
+        uploadDoneBtn.disabled = uploadSlots.some(slot => !slot.files[0]);
+      };
+    });
+    uploadDoneBtn.onclick = async () => {
+      photos = await Promise.all(uploadSlots.map(inp => fileToDataURL(inp.files[0])));
+      maxPhotos = 3;
+      document.getElementById('shots-sel').value = '3';
+      stripDecorations = [];
+      uploadModal.style.display = 'none';
+      renderStrip(); updateUI(); showEditor();
+    };
+    function fileToDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
     // CAMERA
     const video = document.getElementById('video');
     const capC = document.createElement('canvas'); const capX = capC.getContext('2d');
@@ -594,6 +694,10 @@
       document.getElementById('shot-counter').textContent = `? ${photos.length}/${maxPhotos}`;
       const dots = document.getElementById('shot-dots'); dots.innerHTML = '';
       for (let i = 0; i < maxPhotos; i++) { const d = document.createElement('div'); d.className = 'sdot' + (i < photos.length ? ' filled' : ''); dots.appendChild(d); }
+      const complete = photos.length >= maxPhotos;
+      document.getElementById('go-editor-btn').disabled = !complete;
+      const exportBtn = document.getElementById('save-btn');
+      if (exportBtn) exportBtn.disabled = !complete;
     }
     // BACKGROUND SEGMENTATION
     let bgMode = 'none'; // 'none', 'blur', 'color', 'image'
@@ -726,6 +830,7 @@
         document.getElementById('save-btn').disabled = false;
         fireConfetti(); showToast('STRIP COMPLETE 🎉');
         beep(660, 0.2, 0.2); setTimeout(() => beep(880, 0.2, 0.2), 200);
+        setTimeout(showEditor, 650);
       } else {
         document.getElementById('snap-btn').disabled = false;
       }
@@ -744,14 +849,21 @@
       burstGo = false; document.getElementById('burst-btn').textContent = '?';
     };
     document.getElementById('retake-btn').onclick = () => {
-      photos = []; burstGo = false; renderStrip(); updateUI();
+      photos = []; stripDecorations = []; burstGo = false; renderStrip(); updateUI();
       document.getElementById('snap-btn').disabled = !stream;
       document.getElementById('save-btn').disabled = true;
       document.getElementById('save-dd').classList.remove('open');
     };
     // STRIP RENDER
     function renderStrip() {
-      const cont = document.getElementById('strip-photos'); cont.innerHTML = '';
+      renderStripInto(document.getElementById('strip-photos'), false);
+      renderStripInto(document.getElementById('editor-strip-photos'), true);
+      renderStripDecorations();
+      updateUI();
+    }
+    function renderStripInto(cont, interactive) {
+      if (!cont) return;
+      cont.innerHTML = '';
       const isH = curLayout === 'h', isP = curLayout === 'p';
       if (isH) { cont.style.flexDirection = 'row'; cont.style.flexWrap = 'wrap'; }
       else { cont.style.flexDirection = 'column'; cont.style.flexWrap = 'nowrap'; }
@@ -777,17 +889,75 @@
         }
 
         slot.appendChild(layer);
-        slot.onclick = (e) => {
-          if (e.target.closest('.slot-hover') || e.target.classList.contains('sticker-placed')) return;
-          if (!selSticker) return;
-          const r = slot.getBoundingClientRect();
-          addStickerToLayer(layer, selSticker, e.clientX - r.left - 14, e.clientY - r.top - 14);
-        };
         cont.appendChild(slot);
       }
-      updateUI();
+      if (interactive) {
+        cont.onclick = (e) => {
+          if (!selSticker) return;
+          if (e.target.closest('.slot-hover') || e.target.classList.contains('sticker-placed')) return;
+          const r = cont.getBoundingClientRect();
+          addStripDecoration({
+            type: 'emoji',
+            value: selSticker,
+            x: e.clientX - r.left,
+            y: e.clientY - r.top
+          });
+        };
+      }
     }
     renderStrip(); updateUI();
+    function positionDecorLayer() {
+      const layer = document.getElementById('strip-decor-layer');
+      const photosEl = document.getElementById('editor-strip-photos');
+      const card = document.querySelector('.editor-strip-card');
+      if (!layer || !photosEl || !card) return;
+      const pr = photosEl.getBoundingClientRect();
+      const cr = card.getBoundingClientRect();
+      layer.style.left = (pr.left - cr.left) + 'px';
+      layer.style.top = (pr.top - cr.top) + 'px';
+      layer.style.width = pr.width + 'px';
+      layer.style.height = pr.height + 'px';
+    }
+    function addStripDecoration(dec) {
+      const layer = document.getElementById('strip-decor-layer');
+      const w = layer?.offsetWidth || 260;
+      const h = layer?.offsetHeight || 620;
+      stripDecorations.push({
+        type: dec.type,
+        value: dec.value,
+        font: dec.font || '',
+        color: dec.color || txtColor,
+        xPct: Math.max(0, Math.min(1, (dec.x || 12) / w)),
+        yPct: Math.max(0, Math.min(1, (dec.y || 12) / h))
+      });
+      renderStripDecorations();
+    }
+    function renderStripDecorations() {
+      const layer = document.getElementById('strip-decor-layer');
+      if (!layer) return;
+      positionDecorLayer();
+      layer.innerHTML = '';
+      stripDecorations.forEach((dec, i) => {
+        const el = document.createElement('div');
+        el.className = 'sticker-placed strip-decoration';
+        el.textContent = dec.value;
+        el.style.left = (dec.xPct * layer.offsetWidth) + 'px';
+        el.style.top = (dec.yPct * layer.offsetHeight) + 'px';
+        if (dec.type === 'text') {
+          el.style.fontFamily = dec.font;
+          el.style.color = dec.color;
+          el.style.fontSize = '34px';
+          el.style.whiteSpace = 'nowrap';
+          el.style.textShadow = '2px 2px 0 #111, 0 0 8px rgba(255,255,255,.9)';
+        } else {
+          el.style.fontSize = '36px';
+        }
+        makeDrag(el, layer, dec);
+        el.ondblclick = () => { stripDecorations.splice(i, 1); renderStripDecorations(); };
+        layer.appendChild(el);
+      });
+    }
+    window.addEventListener('resize', positionDecorLayer);
     function addStickerToLayer(layer, emoji, x, y) {
       const s = document.createElement('div'); s.className = 'sticker-placed'; s.textContent = emoji;
       s.style.left = x + 'px'; s.style.top = y + 'px';
@@ -800,18 +970,24 @@
       s.style.textShadow = '0 2px 6px rgba(0,0,0,0.5)';
       makeDrag(s, layer.parentElement); layer.appendChild(s);
     }
-    function makeDrag(el, parent) {
+    function makeDrag(el, parent, model) {
       let ox, oy, drag = false;
       el.onmousedown = e => {
         e.stopPropagation(); drag = true; ox = e.clientX - el.offsetLeft; oy = e.clientY - el.offsetTop;
         document.onmousemove = e2 => {
           if (!drag) return;
-          el.style.left = Math.max(0, Math.min(e2.clientX - ox, parent.offsetWidth - 24)) + 'px';
-          el.style.top = Math.max(0, Math.min(e2.clientY - oy, parent.offsetHeight - 24)) + 'px';
+          const left = Math.max(0, Math.min(e2.clientX - ox, parent.offsetWidth - 24));
+          const top = Math.max(0, Math.min(e2.clientY - oy, parent.offsetHeight - 24));
+          el.style.left = left + 'px';
+          el.style.top = top + 'px';
+          if (model) {
+            model.xPct = left / Math.max(1, parent.offsetWidth);
+            model.yPct = top / Math.max(1, parent.offsetHeight);
+          }
         };
         document.onmouseup = () => { drag = false; document.onmousemove = null; document.onmouseup = null; };
       };
-      el.ondblclick = () => el.remove();
+      if (!model) el.ondblclick = () => el.remove();
     }
     // EXPORT
     const saveBtn = document.getElementById('save-btn'), saveDD = document.getElementById('save-dd');
@@ -854,8 +1030,29 @@
             sx.fillStyle = '#fff'; sx.fillRect(PERF, y - 4, PW, PH + 20);
             sx.drawImage(img, PERF, y, PW, PH);
           } else { sx.drawImage(img, PERF, y, PW, PH); }
+          if (curFrame) drawCanvasFrame(sx, PERF, y, PW, PH, curFrame);
         }
       }
+      const decorH = maxPhotos * PH + (maxPhotos - 1) * GAP;
+      stripDecorations.forEach(dec => {
+        const x = dec.xPct * sc.width;
+        const y = PAD + dec.yPct * decorH;
+        sx.save();
+        sx.textBaseline = 'top';
+        sx.shadowColor = '#111';
+        sx.shadowOffsetX = 2;
+        sx.shadowOffsetY = 2;
+        sx.shadowBlur = 0;
+        if (dec.type === 'text') {
+          sx.fillStyle = dec.color || '#c084fc';
+          sx.font = `bold 28px ${dec.font || "'M PLUS Rounded 1c'"}`;
+        } else {
+          sx.fillStyle = '#111';
+          sx.font = '34px sans-serif';
+        }
+        sx.fillText(dec.value, x, y);
+        sx.restore();
+      });
       if (cap) {
         const isDark = (curBorder.bg === '#1a1a2e');
         sx.fillStyle = isDark ? '#fff' : '#1a1a2e';
@@ -867,6 +1064,25 @@
         sx.fillText(new Date().toLocaleDateString(), sc.width / 2, TH - 4);
       }
       return sc;
+    }
+    function drawCanvasFrame(ctx, x, y, w, h, frame) {
+      ctx.save();
+      if (frame === 'hearts') {
+        ctx.strokeStyle = '#ff007f'; ctx.lineWidth = 8; ctx.setLineDash([3, 7]); ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
+      } else if (frame === 'stars') {
+        ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 7; ctx.setLineDash([10, 6]); ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
+      } else if (frame === 'vhs') {
+        ctx.fillStyle = 'rgba(0,0,0,.12)';
+        for (let yy = y; yy < y + h; yy += 6) ctx.fillRect(x, yy, w, 1);
+      } else if (frame === 'sakura' || frame === 'daisy' || frame === 'bows' || frame === 'clouds') {
+        ctx.strokeStyle = frame === 'clouds' ? '#add8e6' : frame === 'daisy' ? '#fffacd' : '#ffb6c1';
+        ctx.lineWidth = 8; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
+      } else if (frame === 'glitter') {
+        ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 6; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
+        ctx.fillStyle = 'rgba(255,255,255,.75)';
+        for (let i = 0; i < 16; i++) ctx.fillRect(x + Math.random() * w, y + Math.random() * h, 2, 2);
+      }
+      ctx.restore();
     }
     document.getElementById('opt-save').onclick = async () => {
       const sc = await buildCanvas(); const a = document.createElement('a');
