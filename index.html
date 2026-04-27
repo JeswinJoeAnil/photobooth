@@ -701,17 +701,30 @@
       if (flipped) capX.setTransform(1, 0, 0, 1, 0, 0);
       return capC.toDataURL('image/jpeg', 0.92);
     }
-    async function takeShot() {
+    async function takeShot(isRemoteTrigger = false) {
       if (shooting || !stream || photos.length >= maxPhotos) return;
+
+      if (partyActive && !isRemoteTrigger) {
+        Object.values(peerConnections).forEach(p => {
+          if (p.conn && p.conn.open) p.conn.send({ type: 'sync-shoot' });
+        });
+      }
+
       shooting = true; document.getElementById('snap-btn').classList.add('pressed');
       document.getElementById('snap-btn').disabled = true;
       await countdown(); doFlash(); shutter();
-      photos.push(capture());
+      
+      if (partyActive && Object.keys(peerConnections).length > 0) {
+        photos.push(await captureGrid());
+      } else {
+        photos.push(capture());
+      }
+
       renderStrip(); updateUI();
       document.getElementById('snap-btn').classList.remove('pressed');
       if (photos.length >= maxPhotos) {
         document.getElementById('save-btn').disabled = false;
-        fireConfetti(); showToast('STRIP COMPLETE ?');
+        fireConfetti(); showToast('STRIP COMPLETE 🎉');
         beep(660, 0.2, 0.2); setTimeout(() => beep(880, 0.2, 0.2), 200);
       } else {
         document.getElementById('snap-btn').disabled = false;
@@ -1158,7 +1171,7 @@
         }
         if (data.type === 'sync-shoot') {
           // Remote-triggered photo: run local countdown & capture
-          doSyncShot();
+          takeShot(true);
         }
       });
 
@@ -1241,86 +1254,66 @@
       }
     }
 
-    // ── Synchronized Shoot ──
-    // Override snap button when in party mode to sync across peers
-    const origTakeShot = takeShot;
-    const origSnap = document.getElementById('snap-btn').onclick;
-
-    document.getElementById('snap-btn').onclick = () => {
-      if (partyActive) {
-        // Broadcast shoot command to all peers
-        Object.values(peerConnections).forEach(p => {
-          if (p.conn && p.conn.open) {
-            p.conn.send({ type: 'sync-shoot' });
-          }
-        });
-        // Also shoot locally
-        doSyncShot();
-      } else {
-        takeShot();
-      }
-    };
-
-    async function doSyncShot() {
-      if (shooting || !stream || photos.length >= maxPhotos) return;
-      shooting = true;
-      document.getElementById('snap-btn').classList.add('pressed');
-      document.getElementById('snap-btn').disabled = true;
-      await countdown(); doFlash(); shutter();
-
-      // Capture the entire video container (all feeds) as one photo
-      if (partyActive && Object.keys(peerConnections).length > 0) {
-        photos.push(await captureGrid());
-      } else {
-        photos.push(capture());
-      }
-
-      renderStrip(); updateUI();
-      document.getElementById('snap-btn').classList.remove('pressed');
-      if (photos.length >= maxPhotos) {
-        document.getElementById('save-btn').disabled = false;
-        fireConfetti(); showToast('STRIP COMPLETE 🎉');
-        beep(660, 0.2, 0.2); setTimeout(() => beep(880, 0.2, 0.2), 200);
-      } else {
-        document.getElementById('snap-btn').disabled = false;
-      }
-      shooting = false;
-    }
-
     async function captureGrid() {
-      // Use html2canvas-style approach: draw each video onto a combined canvas
       const allVideos = videoContainer.querySelectorAll('video');
       const count = allVideos.length;
-      const cols = count <= 1 ? 1 : 2;
-      const rows = Math.ceil(count / cols);
-      const cellW = 640, cellH = 480;
+      
       const gc = document.createElement('canvas');
-      gc.width = cellW * cols;
-      gc.height = cellH * rows;
+      gc.width = 1280;
+      gc.height = 960;
       const gctx = gc.getContext('2d');
-
+      gctx.fillStyle = '#000';
+      gctx.fillRect(0, 0, gc.width, gc.height);
+      
       // Apply current filter
       const b = document.getElementById('sl-b').value, cc = document.getElementById('sl-c').value,
         s = document.getElementById('sl-s').value, h = document.getElementById('sl-h').value;
       const m = `brightness(${b}%) contrast(${cc}%) saturate(${s}%) hue-rotate(${h}deg)`;
       gctx.filter = curFilter === 'none' ? m : curFilter + ' ' + m;
 
-      allVideos.forEach((v, i) => {
-        const col = i % cols, row = Math.floor(i / cols);
-        const x = col * cellW, y = row * cellH;
-        // Draw with cover-fit
-        const vw = v.videoWidth || cellW, vh = v.videoHeight || cellH;
-        const scale = Math.max(cellW / vw, cellH / vh);
-        const sw = cellW / scale, sh = cellH / scale;
-        const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
-        gctx.drawImage(v, sx, sy, sw, sh, x, y, cellW, cellH);
+      if (count === 1) {
+         drawCover(gctx, allVideos[0], 0, 0, 1280, 960);
+      } else if (count === 2) {
+         drawCover(gctx, allVideos[0], 0, 0, 640, 960);
+         drawCover(gctx, allVideos[1], 640, 0, 640, 960);
+         // divider
+         gctx.strokeStyle = 'rgba(255,255,255,0.3)'; gctx.lineWidth = 4;
+         gctx.beginPath(); gctx.moveTo(640, 0); gctx.lineTo(640, 960); gctx.stroke();
+      } else if (count <= 4) {
+         drawCover(gctx, allVideos[0], 0, 0, 640, 480);
+         if (count > 1) drawCover(gctx, allVideos[1], 640, 0, 640, 480);
+         if (count > 2) drawCover(gctx, allVideos[2], 0, 480, 640, 480);
+         if (count > 3) drawCover(gctx, allVideos[3], 640, 480, 640, 480);
+         
+         gctx.strokeStyle = 'rgba(255,255,255,0.3)'; gctx.lineWidth = 4;
+         gctx.beginPath(); gctx.moveTo(640, 0); gctx.lineTo(640, 960); gctx.stroke();
+         gctx.beginPath(); gctx.moveTo(0, 480); gctx.lineTo(1280, 480); gctx.stroke();
+      }
 
-        // Draw subtle divider lines
-        gctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        gctx.lineWidth = 2;
-        if (col > 0) { gctx.beginPath(); gctx.moveTo(x, y); gctx.lineTo(x, y + cellH); gctx.stroke(); }
-        if (row > 0) { gctx.beginPath(); gctx.moveTo(x, y); gctx.lineTo(x + cellW, y); gctx.stroke(); }
-      });
+      function drawCover(ctx, vid, x, y, w, h) {
+         // Also handle bgCanvas for the local video if segmentation is active!
+         let source = vid;
+         if (vid.id === 'video' && bgMode !== 'none' && bgCanvas.style.display !== 'none') {
+             source = bgCanvas; // Use the segmented local canvas
+         }
+         
+         const vw = source.videoWidth || source.width || w;
+         const vh = source.videoHeight || source.height || h;
+         const scale = Math.max(w / vw, h / vh);
+         const sw = w / scale, sh = h / scale;
+         const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+         
+         // Handle flipped for local video
+         ctx.save();
+         if (vid.id === 'video' && flipped) {
+            ctx.translate(x + w, y);
+            ctx.scale(-1, 1);
+            ctx.drawImage(source, sx, sy, sw, sh, 0, 0, w, h);
+         } else {
+            ctx.drawImage(source, sx, sy, sw, sh, x, y, w, h);
+         }
+         ctx.restore();
+      }
 
       return gc.toDataURL('image/jpeg', 0.92);
     }
