@@ -24,6 +24,18 @@
 <body>
   <div id="app">
     <header>
+      <div class="header-orbits" aria-hidden="true">
+        <div class="orbit-cluster orbit-cluster-left">
+          <span class="orbit-token token-cd"></span>
+          <span class="orbit-token token-star"></span>
+          <span class="orbit-token token-heart"></span>
+        </div>
+        <div class="orbit-cluster orbit-cluster-right">
+          <span class="orbit-token token-bubble"></span>
+          <span class="orbit-token token-cd mini"></span>
+          <span class="orbit-token token-spark"></span>
+        </div>
+      </div>
       <div class="logo">PHOTO-BOOTH &#9733;</div>
       <div class="header-ctrls">
         <div class="coin">
@@ -54,7 +66,12 @@
 
     <div class="main" id="capture-page">
       <!-- LEFT: CAMERA -->
-      <div>
+      <div class="capture-primary">
+        <div class="scene-charms" aria-hidden="true">
+          <div class="scene-charm charm-film"></div>
+          <div class="scene-charm charm-disc"></div>
+          <div class="scene-charm charm-ticket"></div>
+        </div>
         <div class="cam-card">
           <div id="video-container">
             <video id="video" autoplay muted playsinline></video>
