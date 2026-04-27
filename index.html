@@ -892,17 +892,7 @@
         cont.appendChild(slot);
       }
       if (interactive) {
-        cont.onclick = (e) => {
-          if (!selSticker) return;
-          if (e.target.closest('.slot-hover') || e.target.classList.contains('sticker-placed')) return;
-          const r = cont.getBoundingClientRect();
-          addStripDecoration({
-            type: 'emoji',
-            value: selSticker,
-            x: e.clientX - r.left,
-            y: e.clientY - r.top
-          });
-        };
+        cont.querySelectorAll('.slot-hover').forEach(el => el.remove());
       }
     }
     renderStrip(); updateUI();
@@ -958,6 +948,21 @@
       });
     }
     window.addEventListener('resize', positionDecorLayer);
+    document.querySelector('.editor-strip-card').onclick = (e) => {
+      if (!selSticker) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('.slot-hover') || target.classList.contains('sticker-placed')) return;
+      const photosEl = document.getElementById('editor-strip-photos');
+      const r = photosEl.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+      addStripDecoration({
+        type: 'emoji',
+        value: selSticker,
+        x: e.clientX - r.left,
+        y: e.clientY - r.top
+      });
+    };
     function addStickerToLayer(layer, emoji, x, y) {
       const s = document.createElement('div'); s.className = 'sticker-placed'; s.textContent = emoji;
       s.style.left = x + 'px'; s.style.top = y + 'px';
