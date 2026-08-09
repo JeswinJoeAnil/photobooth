@@ -36,6 +36,7 @@ function CameraBoothComponent({
   setMirrorOn,
   onCapture,
   cameraStream,
+  onRequestCamera,
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -56,7 +57,14 @@ function CameraBoothComponent({
     setTimestamp(getFormattedTimestamp());
   }, [setTimestamp]);
 
-  /* Use the pre-acquired camera stream from App (permission already granted on page load) */
+  /* Request camera when booth opens (lazy permission request) */
+  useEffect(() => {
+    if (isOpen && !cameraStream && !streaming && onRequestCamera) {
+      onRequestCamera();
+    }
+  }, [isOpen, cameraStream, streaming, onRequestCamera]);
+
+  /* Use the pre-acquired camera stream from App */
   useEffect(() => {
     if (!cameraStream) return;
     if (videoRef.current && !streaming) {
@@ -180,6 +188,14 @@ function CameraBoothComponent({
 
   const runSingleCapture = useCallback(async () => {
     if (shootingRef.current) return;
+
+    /* If camera is not streaming, request it and wait */
+    if (!streaming) {
+      if (onRequestCamera) onRequestCamera();
+      setStatusMessage('Enable the camera first — waiting for permission...');
+      return;
+    }
+
     shootingRef.current = true;
     setShooting(true);
     setOpen(true);
@@ -206,10 +222,18 @@ function CameraBoothComponent({
     setShooting(false);
     shootingRef.current = false;
     window.setTimeout(() => document.getElementById('memory-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
-  }, [captureOnePhoto, mode, setCaptured, setOpen, timer]);
+  }, [captureOnePhoto, mode, setCaptured, setOpen, timer, streaming, onRequestCamera]);
 
   const runSequentialCapture = useCallback(async (totalShots) => {
     if (shootingRef.current) return;
+
+    /* If camera is not streaming, request it and wait */
+    if (!streaming) {
+      if (onRequestCamera) onRequestCamera();
+      setStatusMessage('Enable the camera first — waiting for permission...');
+      return;
+    }
+
     shootingRef.current = true;
     setShooting(true);
     setOpen(true);
@@ -238,7 +262,7 @@ function CameraBoothComponent({
     setShooting(false);
     shootingRef.current = false;
     window.setTimeout(() => document.getElementById('memory-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
-  }, [captureOnePhoto, setCaptured, setOpen, timer]);
+  }, [captureOnePhoto, setCaptured, setOpen, timer, streaming, onRequestCamera]);
 
   const stopBurst = useCallback(() => {
     shootingRef.current = false;
@@ -267,17 +291,19 @@ function CameraBoothComponent({
         </div>
         <div className="capture-layout">
           <div className="mode-stack" role="radiogroup" aria-label="Photo count">
+            <span className="mode-stack-label">Strip length</span>
             {[2, 3, 4, 6].map((item) => (
               <button
                 key={item}
                 type="button"
                 className={mode === item ? 'active' : ''}
-                onClick={() => { if (!shooting) setMode(item); }}
+                onClick={() => { if (!shooting) { setMode(item); setStatusMessage(`Strip set to ${item} photos.`); } }}
                 aria-pressed={mode === item}
                 disabled={shooting}
               >
                 <Grid2X2 size={18} />
-                <span>{item} shots</span>
+                <span>{item}</span>
+                <span className="mode-shots-label">{item === 1 ? 'shot' : 'shots'}</span>
               </button>
             ))}
           </div>
@@ -316,8 +342,22 @@ function CameraBoothComponent({
         <div className="capture-actions">
           {!shooting ? (
             <>
-              <button type="button" className="shutter-large burst-button" onClick={() => runSequentialCapture(mode)}><Zap size={22} /> Burst Mode</button>
-              <button type="button" className="shutter-large" onClick={runSingleCapture}><Camera size={24} /> Capture Shot</button>
+              {!streaming && (
+                <div className="camera-status-bar" role="status">
+                  <span className="camera-status-dot" />
+                  <span>camera off · tap capture to start</span>
+                </div>
+              )}
+              <div className="capture-btn-row">
+                <div className="capture-btn-wrapper">
+                  <button type="button" className="shutter-large burst-button" onClick={() => runSequentialCapture(mode)}><Zap size={22} /> Burst Mode</button>
+                  <span className="capture-hint">Takes all {mode} shots in a row</span>
+                </div>
+                <div className="capture-btn-wrapper">
+                  <button type="button" className="shutter-large" onClick={runSingleCapture}><Camera size={24} /> Capture Shot</button>
+                  <span className="capture-hint">One photo at a time</span>
+                </div>
+              </div>
               <div className="secondary-actions" style={{ display: 'flex', gap: '8px' }}>
                 <button type="button" className="pill-button" onClick={() => { setCaptured([]); setStatusMessage('Roll cleared.'); }} disabled={captured.length === 0}>Clear roll</button>
                 <button type="button" className="pill-button import-btn" onClick={() => document.getElementById('booth-file-upload').click()} aria-controls="booth-file-upload">

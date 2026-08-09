@@ -1,13 +1,13 @@
 import React, { useRef, useState } from 'react';
 
-export function DoodleCanvas({ stripTab, doodlePaths, setDoodlePaths, doodleBrush }) {
+export function DoodleCanvas({ stripTab, doodlePaths, setDoodlePaths, doodleBrush, previewWidth = 900 }) {
   const [currentPath, setCurrentPath] = useState(null);
   const containerRef = useRef(null);
 
   const handlePointerDown = (e) => {
     if (stripTab !== 'doodle') return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const scale = 900 / rect.width;
+    const scale = previewWidth / rect.width;
     const x = (e.clientX - rect.left) * scale;
     const y = (e.clientY - rect.top) * scale;
     setCurrentPath({ points: [{ x, y }], ...doodleBrush });
@@ -17,7 +17,7 @@ export function DoodleCanvas({ stripTab, doodlePaths, setDoodlePaths, doodleBrus
   const handlePointerMove = (e) => {
     if (stripTab !== 'doodle' || !currentPath) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const scale = 900 / rect.width;
+    const scale = previewWidth / rect.width;
     const x = (e.clientX - rect.left) * scale;
     const y = (e.clientY - rect.top) * scale;
     setCurrentPath(prev => ({ ...prev, points: [...prev.points, { x, y }] }));
@@ -30,7 +30,7 @@ export function DoodleCanvas({ stripTab, doodlePaths, setDoodlePaths, doodleBrus
     e.target.releasePointerCapture(e.pointerId);
   };
 
-  const viewHeight = containerRef.current ? (containerRef.current.offsetHeight * (900 / containerRef.current.offsetWidth)) : 1000;
+  const viewHeight = containerRef.current ? (containerRef.current.offsetHeight * (previewWidth / containerRef.current.offsetWidth)) : previewWidth * 2;
 
   return (
     <div
@@ -53,7 +53,7 @@ export function DoodleCanvas({ stripTab, doodlePaths, setDoodlePaths, doodleBrus
         cursor: stripTab === 'doodle' ? 'var(--cursor-crosshair)' : 'inherit',
       }}
     >
-      <svg width="100%" height="100%" viewBox={`0 0 900 ${viewHeight}`} style={{ overflow: 'visible' }}>
+      <svg width="100%" height="100%" viewBox={`0 0 ${previewWidth} ${viewHeight}`} style={{ overflow: 'visible' }}>
         {doodlePaths.map((path, i) => (
           <polyline key={i} points={path.points.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={path.color} strokeWidth={path.size} strokeLinecap="round" strokeLinejoin="round" filter={path.shadow ? `drop-shadow(0px 0px ${path.shadow}px ${path.color})` : 'none'} />
         ))}

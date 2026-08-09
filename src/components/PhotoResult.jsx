@@ -24,11 +24,15 @@ function PhotoResultComponent({
   photoScales,
   setPhotoScales,
   stripBackground,
+  setPreviewScale,
+  setPreviewWidth,
+  stripElementRef,
 }) {
   const wrapperRef = useRef(null);
   const stripRef = useRef(null);
   const [scale, setScale] = useState(1);
   const [marginBottomVal, setMarginBottomVal] = useState(0);
+  const [previewW, setPreviewW] = useState(380);
 
   useEffect(() => {
     if (!wrapperRef.current || !stripRef.current) return;
@@ -43,6 +47,12 @@ function PhotoResultComponent({
       const safeScale = Math.max(s, 0.42);
       setScale(safeScale);
       setMarginBottomVal(safeScale < 1 ? -(stripRef.current.offsetHeight * (1 - safeScale)) : 0);
+
+      setPreviewW(sW);
+
+      /* Report actual preview dimensions + scale to parent for export */
+      if (setPreviewScale) setPreviewScale(safeScale);
+      if (setPreviewWidth) setPreviewWidth(sW);
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -61,10 +71,15 @@ function PhotoResultComponent({
 
   const makeDecoActivate = useCallback((id) => () => setActiveDecoId(id), [setActiveDecoId]);
 
+  const setStripNode = useCallback((node) => {
+    stripRef.current = node;
+    if (stripElementRef) stripElementRef.current = node;
+  }, [stripElementRef]);
+
   return (
     <div ref={wrapperRef} className="strip-scale-wrapper">
       <div
-        ref={stripRef}
+        ref={setStripNode}
         className={`photo-result frame-${frame.id}`}
         role="img"
         aria-label={`Photo strip preview using the ${frame.name} template with ${photos.length} photos`}
@@ -97,7 +112,7 @@ function PhotoResultComponent({
             />
           ))}
 
-        <DoodleCanvas stripTab={stripTab} doodlePaths={doodlePaths} setDoodlePaths={setDoodlePaths} doodleBrush={doodleBrush} />
+        <DoodleCanvas stripTab={stripTab} doodlePaths={doodlePaths} setDoodlePaths={setDoodlePaths} doodleBrush={doodleBrush} previewWidth={previewW} />
 
         <div className="decorations-layer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 22 }}>
           {decorations.map(deco => (

@@ -47,11 +47,19 @@ export default function App() {
   const [editorTab, setEditorTab] = useState('filters');
   const [stripTab, setStripTab] = useState('text');
   const [mirrorOn, setMirrorOn] = useState(true);
-  const [currentPage, setCurrentPage] = useState('capture');
+  const [currentPage, setCurrentPage] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    return hash === 'editor' ? 'editor' : 'capture';
+  });
   const [cameraStream, setCameraStream] = useState(null);
+  const [cameraRequested, setCameraRequested] = useState(false);
+  const [previewScale, setPreviewScale] = useState(1);
+  const [previewWidth, setPreviewWidth] = useState(380);
+  const stripElementRef = useRef(null);
 
-  /* Request camera permission immediately on page load */
-  useEffect(() => {
+  const requestCamera = useCallback(() => {
+    if (cameraRequested) return;
+    setCameraRequested(true);
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
       .then((stream) => {
         setCameraStream(stream);
@@ -59,10 +67,7 @@ export default function App() {
       .catch(() => {
         /* Permission denied or no camera — CameraBooth will handle fallback */
       });
-    return () => {
-      /* Cleanup is handled by CameraBooth when unmounting */
-    };
-  }, []);
+  }, [cameraRequested]);
 
   useEffect(() => {
     PRELOAD_IMAGE_URLS.forEach((url) => {
@@ -116,7 +121,17 @@ export default function App() {
     document.querySelector('#booth')?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  const [shuffleUndo, setShuffleUndo] = useState(null);
+
   const handleShuffle = useCallback(() => {
+    /* Save current state for undo */
+    setShuffleUndo({
+      frame,
+      filter: activeFilter,
+      accent,
+      decorations: [...decorations],
+    });
+
     const randomFrame = frames[Math.floor(Math.random() * frames.length)];
     setFrame(randomFrame);
 
@@ -129,7 +144,16 @@ export default function App() {
     setDecorations(generateShuffleDecorations(stickers));
     setActiveDecoId(null);
     triggerMagicFlashOnStrip();
-  }, []);
+  }, [frame, activeFilter, accent, decorations]);
+
+  const handleUndoShuffle = useCallback(() => {
+    if (!shuffleUndo) return;
+    setFrame(shuffleUndo.frame);
+    setActiveFilter(shuffleUndo.filter);
+    setAccent(shuffleUndo.accent);
+    setDecorations(shuffleUndo.decorations);
+    setShuffleUndo(null);
+  }, [shuffleUndo]);
 
   const prevCapturedLength = useRef(0);
   useEffect(() => {
@@ -138,13 +162,29 @@ export default function App() {
     prevCapturedLength.current = captured.length;
 
     if (isFull && wasGrowing && currentPage === 'capture') {
-      const t = setTimeout(() => {
-        setCurrentPage('editor');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }, 600);
-      return () => clearTimeout(t);
+      setCurrentPage('editor');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [captured.length, mode, currentPage]);
+
+  /* Sync URL hash with currentPage for browser back/forward support */
+  useEffect(() => {
+    const newHash = currentPage === 'editor' ? '#editor' : '#capture';
+    if (window.location.hash !== newHash) {
+      window.history.pushState(null, '', newHash);
+    }
+  }, [currentPage]);
+
+  /* Handle browser back/forward navigation */
+  useEffect(() => {
+    const handlePopState = () => {
+      const hash = window.location.hash.replace('#', '');
+      setCurrentPage(hash === 'editor' ? 'editor' : 'capture');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const goToEditor = useCallback(() => {
     setCurrentPage('editor');
@@ -184,7 +224,7 @@ export default function App() {
             transition={{ type: 'spring', stiffness: 80, damping: 18 }}
           >
             <Hero
-              onStart={onStartBooth}
+              onStart={() => { requestCamera(); onStartBooth(); }}
               photos={stripPhotos}
               filter={selectedFilter}
               timestamp={timestamp}
@@ -208,6 +248,7 @@ export default function App() {
                 setMirrorOn={setMirrorOn}
                 onCapture={playShutter}
                 cameraStream={cameraStream}
+                onRequestCamera={requestCamera}
               />
               <CameraEditor
                 activeFilter={activeFilter}
@@ -222,8 +263,7 @@ export default function App() {
                 setEditorTab={setEditorTab}
               />
             </section>
-            <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} />
-
+            <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} compact />
             {captured.length > 0 && (
               <motion.div
                 className="go-to-editor-bar"
@@ -242,6 +282,7 @@ export default function App() {
                 </div>
               </motion.div>
             )}
+
             <Footer />
           </motion.div>
         ) : (
@@ -264,41 +305,51 @@ export default function App() {
             <div className="editor-split">
               <div className="editor-strip-col">
                 <div className="editor-strip-canvas">
-                  <PhotoResult
-                    frame={frame}
-                    photos={stripPhotos}
-                    filter={selectedFilter}
-                    accent={accent}
-                    decorations={decorations}
-                    setDecorations={setDecorations}
-                    activeDecoId={activeDecoId}
-                    setActiveDecoId={setActiveDecoId}
-                    doodlePaths={doodlePaths}
-                    setDoodlePaths={setDoodlePaths}
-                    doodleBrush={doodleBrush}
-                    stripTab={stripTab}
-                    zoom={zoom}
-                    rotation={rotation}
-                    vignette={vignette}
-                    fitSettings={fitSettings}
-                    photoScales={photoScales}
-                    setPhotoScales={setPhotoScales}
-                    timestamp={timestamp}
-                    stripBackground={stripBackground}
-                  />
+                   <PhotoResult
+                     frame={frame}
+                     photos={stripPhotos}
+                     filter={selectedFilter}
+                     accent={accent}
+                     decorations={decorations}
+                     setDecorations={setDecorations}
+                     activeDecoId={activeDecoId}
+                     setActiveDecoId={setActiveDecoId}
+                     doodlePaths={doodlePaths}
+                     setDoodlePaths={setDoodlePaths}
+                     doodleBrush={doodleBrush}
+                     stripTab={stripTab}
+                     zoom={zoom}
+                     rotation={rotation}
+                     vignette={vignette}
+                     fitSettings={fitSettings}
+                     photoScales={photoScales}
+                     setPhotoScales={setPhotoScales}
+                     timestamp={timestamp}
+                     stripBackground={stripBackground}
+setPreviewScale={setPreviewScale}
+                       setPreviewWidth={setPreviewWidth}
+                       stripElementRef={stripElementRef}
+                     />
                 </div>
               </div>
 
               <div className="editor-controls-col">
                 <div className="editor-controls-card">
-                  <button className="magic-btn" onClick={handleShuffle}>
-                    <span className="sparkle-icon">✦</span>
-                    MAGIC SHUFFLE
-                  </button>
+                  <div className="magic-shuffle-row">
+                    <button className="magic-btn" onClick={handleShuffle}>
+                      <span className="sparkle-icon">✦</span>
+                      MAGIC SHUFFLE
+                    </button>
+                    {shuffleUndo && (
+                      <button type="button" className="pill-button undo-btn" onClick={handleUndoShuffle}>
+                        ↩ Undo
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="editor-controls-card">
-                  <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} />
+                  <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} compact />
                 </div>
 
                 <div className="editor-controls-card">
@@ -337,6 +388,8 @@ export default function App() {
                     setFitSettings={setFitSettings}
                     mode={mode}
                     onShuffle={handleShuffle}
+                    onUndoShuffle={handleUndoShuffle}
+                    canUndoShuffle={!!shuffleUndo}
                     stripBackground={stripBackground}
                     setStripBackground={setStripBackground}
                   />
@@ -345,42 +398,45 @@ export default function App() {
                 <div className="editor-controls-card editor-export-card">
                   <div className="paper-note">All set! <Sparkles size={16} /></div>
                   <p>Export your memory</p>
-                  <MemoryLab
-                    frame={frame}
-                    photos={stripPhotos}
-                    filter={selectedFilter}
-                    accent={accent}
-                    decorations={decorations}
-                    setDecorations={setDecorations}
-                    activeDecoId={activeDecoId}
-                    setActiveDecoId={setActiveDecoId}
-                    doodlePaths={doodlePaths}
-                    setDoodlePaths={setDoodlePaths}
-                    doodleBrush={doodleBrush}
-                    setDoodleBrush={setDoodleBrush}
-                    developing={developing}
-                    setDeveloping={setDeveloping}
-                    zoom={zoom}
-                    setZoom={setZoom}
-                    rotation={rotation}
-                    setRotation={setRotation}
-                    vignette={vignette}
-                    stripTab={stripTab}
-                    setStripTab={setStripTab}
-                    accentColor={accent}
-                    captured={captured}
-                    fitSettings={fitSettings}
-                    setFitSettings={setFitSettings}
-                    photoScales={photoScales}
-                    setPhotoScales={setPhotoScales}
-                    timestamp={timestamp}
-                    mode={mode}
-                    onShuffle={handleShuffle}
-                    resultImage={resultImage}
-                    setResultImage={setResultImage}
-                    stripBackground={stripBackground}
-                    exportOnly
-                  />
+                   <MemoryLab
+                     frame={frame}
+                     photos={stripPhotos}
+                     filter={selectedFilter}
+                     accent={accent}
+                     decorations={decorations}
+                     setDecorations={setDecorations}
+                     activeDecoId={activeDecoId}
+                     setActiveDecoId={setActiveDecoId}
+                     doodlePaths={doodlePaths}
+                     setDoodlePaths={setDoodlePaths}
+                     doodleBrush={doodleBrush}
+                     setDoodleBrush={setDoodleBrush}
+                     developing={developing}
+                     setDeveloping={setDeveloping}
+                     zoom={zoom}
+                     setZoom={setZoom}
+                     rotation={rotation}
+                     setRotation={setRotation}
+                     vignette={vignette}
+                     stripTab={stripTab}
+                     setStripTab={setStripTab}
+                     accentColor={accent}
+                     captured={captured}
+                     fitSettings={fitSettings}
+                     setFitSettings={setFitSettings}
+                     photoScales={photoScales}
+                     setPhotoScales={setPhotoScales}
+                     timestamp={timestamp}
+                     mode={mode}
+                     onShuffle={handleShuffle}
+                     resultImage={resultImage}
+                     setResultImage={setResultImage}
+                     stripBackground={stripBackground}
+                     previewScale={previewScale}
+                     previewWidth={previewWidth}
+                     stripElementRef={stripElementRef}
+                     exportOnly
+                   />
                 </div>
               </div>
             </div>

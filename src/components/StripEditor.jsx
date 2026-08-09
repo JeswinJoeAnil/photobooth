@@ -31,11 +31,13 @@ function StripEditorComponent(props) {
     setStripTab,
     fitSettings,
     setFitSettings,
-    mode,
-    onShuffle,
-    stripBackground,
-    setStripBackground,
-  } = props;
+  mode,
+  onShuffle,
+  onUndoShuffle,
+  canUndoShuffle,
+  stripBackground,
+  setStripBackground,
+} = props;
 
   const tabs = [
     { id: 'text', icon: Type, label: 'Text' },
@@ -98,6 +100,11 @@ function StripEditorComponent(props) {
             <Wand2 size={18} />
           )}
           <span>Edit Your Strip</span>
+          {canUndoShuffle && onUndoShuffle && (
+            <button type="button" className="strip-undo-btn" onClick={onUndoShuffle} aria-label="Undo shuffle" title="Undo shuffle">
+              ↩ Undo
+            </button>
+          )}
         </div>
         {decorations.length > 0 && (
           <button

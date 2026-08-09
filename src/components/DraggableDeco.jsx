@@ -44,6 +44,9 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
     cursor: isDragging ? 'grabbing' : 'grab',
     pointerEvents: 'auto',
     touchAction: 'none',
+    transition: 'box-shadow 0.2s ease',
+    boxShadow: isActive ? '0 0 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.15)' : 'none',
+    borderRadius: '8px',
   };
 
   const className = `drag-sticker ${isActive ? 'active-deco' : ''} ${deco.isSmall ? 'small' : ''} ${deco.isChrome ? 'chrome' : ''}`;
@@ -54,6 +57,7 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
       <motion.div
         className={className}
         ref={elementRef}
+        data-deco-id={deco.id}
         drag
         dragControls={dragControls}
         dragListener={false}
@@ -77,6 +81,7 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
     <motion.div
       className={className}
       ref={elementRef}
+      data-deco-id={deco.id}
       drag
       dragControls={dragControls}
       dragListener={false}

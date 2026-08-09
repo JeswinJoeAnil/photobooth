@@ -1,8 +1,23 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { asset } from '../constants/assets.js';
 
 function FooterComponent() {
+  const [email, setEmail] = useState('');
+  const [submitStatus, setSubmitStatus] = useState('');
+
+  const handleSubmit = useCallback((e) => {
+    e.preventDefault();
+    if (!email || !email.includes('@')) {
+      setSubmitStatus('Please enter a valid email.');
+      setTimeout(() => setSubmitStatus(''), 3000);
+      return;
+    }
+    setSubmitStatus('Thanks! You\'re on the list.');
+    setEmail('');
+    setTimeout(() => setSubmitStatus(''), 3000);
+  }, [email]);
+
   return (
     <footer className="site-footer">
 
@@ -25,12 +40,19 @@ function FooterComponent() {
         </div>
       </div>
 
-      <form style={{ position: 'relative', zIndex: 2 }}>
+      <form style={{ position: 'relative', zIndex: 2 }} onSubmit={handleSubmit}>
         <label htmlFor="email">Stay in the loop</label>
         <div>
-          <input id="email" placeholder="you@email.com" />
-          <button type="button">Join</button>
+          <input
+            id="email"
+            type="email"
+            placeholder="you@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <button type="submit">Join</button>
         </div>
+        {submitStatus && <span className="footer-form-status" role="status">{submitStatus}</span>}
       </form>
     </footer>
   );

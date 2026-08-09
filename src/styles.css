@@ -3670,6 +3670,189 @@ main {
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
+/* ═══════════════════════════════════════════════════════════
+   CAMERA STATUS BAR
+   ═══════════════════════════════════════════════════════════ */
+
+.camera-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  background: rgba(20, 10, 15, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 90, 175, 0.18);
+  color: rgba(255, 210, 230, 0.92);
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.camera-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hot, #ff5aaf);
+  box-shadow: 0 0 8px rgba(255, 90, 175, 0.6);
+  animation: camera-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes camera-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* ── "shots" label inside mode-stack buttons ── */
+.mode-shots-label {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+  margin-top: -3px;
+  font-weight: 700;
+}
+
+.mode-stack button.active .mode-shots-label {
+  opacity: 0.8;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MAGIC SHUFFLE ROW + UNDO
+   ═══════════════════════════════════════════════════════════ */
+
+.magic-shuffle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.magic-shuffle-row .magic-btn {
+  flex: 1;
+}
+
+.undo-btn {
+  padding: 6px 14px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.undo-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  transform: scale(1.04);
+}
+
+.strip-undo-btn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.strip-undo-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CAPTURE BUTTON HINTS
+   ═══════════════════════════════════════════════════════════ */
+
+.capture-btn-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.capture-btn-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.capture-btn-wrapper .shutter-large {
+  width: 100%;
+}
+
+.capture-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MODE STACK LABEL
+   ═══════════════════════════════════════════════════════════ */
+
+.mode-stack {
+  position: relative;
+}
+
+.mode-stack-label {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOOTER FORM STATUS
+   ═══════════════════════════════════════════════════════════ */
+
+.footer-form-status {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hot);
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TEMPLATE SECTION COMPACT
+   ═══════════════════════════════════════════════════════════ */
+
+.template-section-compact {
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.template-section-compact .template-rail {
+  padding: 8px;
+}
+
 /* ── Responsive: editor page header ── */
 @media (max-width: 600px) {
   .editor-page-header {

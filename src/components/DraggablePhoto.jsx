@@ -33,11 +33,14 @@ function DraggablePhotoComponent({
       dragMomentum={false}
       onPointerDown={handlePointerDown}
       whileDrag={{ scale: 1.035, zIndex: 5 }}
+      whileHover={{ outline: '2px dashed var(--accent)', outlineOffset: '2px' }}
       style={{
         rotate: rotation + (index % 2 ? 1.5 : -1.2),
         scaleX: scale.x,
         scaleY: scale.y,
-        zIndex: isActive ? 10 : 1
+        zIndex: isActive ? 10 : 1,
+        cursor: 'grab',
+        borderRadius: '4px',
       }}
     >
       <img

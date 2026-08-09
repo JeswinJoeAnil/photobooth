@@ -14,12 +14,14 @@ const MiniTemplate = memo(function MiniTemplateComponent({ frame, photos, filter
   );
 });
 
-function TemplateRailComponent({ frame, setFrame, photos, filter, accent }) {
+function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compact = false }) {
   return (
-    <section id="templates" className="template-section">
-      <div className="section-heading">
-        <div className="section-title"><Sparkles size={18} /><span>Choose Your Vibe</span></div>
-      </div>
+    <section id="templates" className={`template-section ${compact ? 'template-section-compact' : ''}`}>
+      {!compact && (
+        <div className="section-heading">
+          <div className="section-title"><Sparkles size={18} /><span>Choose Your Vibe</span></div>
+        </div>
+      )}
       <div className="template-rail" aria-label="Template choices">
         {frames.map((item, index) => (
           <motion.button

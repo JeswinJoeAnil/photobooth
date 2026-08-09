@@ -42,14 +42,17 @@ function MemoryLabComponent(props) {
     timestamp,
     mode,
     onShuffle,
-    photoScales,
-    setPhotoScales,
-    stripBackground,
-    setStripBackground,
-    resultImage,
-    setResultImage,
-    exportOnly,
-  } = props;
+     photoScales,
+     setPhotoScales,
+     stripBackground,
+     setStripBackground,
+     resultImage,
+     setResultImage,
+     previewScale = 1,
+     previewWidth = 380,
+     stripElementRef,
+     exportOnly,
+   } = props;
 
   const exportRef = useRef(null);
   const blobUrlsRef = useRef([]);
@@ -86,6 +89,9 @@ function MemoryLabComponent(props) {
         photoScales,
         timestamp,
         stripBackground,
+        previewScale,
+        previewWidth,
+        stripElement: stripElementRef?.current || null,
       });
 
       const blob = await new Promise((resolve, reject) => {
@@ -112,7 +118,7 @@ function MemoryLabComponent(props) {
     } finally {
       setDeveloping(null);
     }
-  }, [accent, decorations, doodlePaths, filter, fitSettings, frame, photos, photoScales, rotation, setDeveloping, stripBackground, timestamp, vignette, zoom]);
+  }, [accent, decorations, doodlePaths, filter, fitSettings, frame, photos, photoScales, rotation, setDeveloping, stripBackground, timestamp, vignette, zoom, previewScale, previewWidth]);
 
   const downloadSingleImage = useCallback((img, index) => {
     const link = document.createElement('a');
@@ -203,6 +209,8 @@ function MemoryLabComponent(props) {
           setPhotoScales={setPhotoScales}
           timestamp={timestamp}
           stripBackground={stripBackground}
+          setPreviewScale={setPreviewScale}
+          setPreviewWidth={setPreviewWidth}
         />
       </div>
 
