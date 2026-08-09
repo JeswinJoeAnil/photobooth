@@ -35,6 +35,7 @@ function CameraBoothComponent({
   mirrorOn,
   setMirrorOn,
   onCapture,
+  cameraStream,
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -55,8 +56,20 @@ function CameraBoothComponent({
     setTimestamp(getFormattedTimestamp());
   }, [setTimestamp]);
 
+  /* Use the pre-acquired camera stream from App (permission already granted on page load) */
   useEffect(() => {
-    if (!isOpen || streaming) return;
+    if (!cameraStream) return;
+    if (videoRef.current && !streaming) {
+      videoRef.current.srcObject = cameraStream;
+      streamRef.current = cameraStream;
+      setStreaming(true);
+      setStatusMessage('Camera ready.');
+    }
+  }, [cameraStream, streaming]);
+
+  /* Fallback: if no stream was passed and booth is opened, try requesting directly */
+  useEffect(() => {
+    if (cameraStream || !isOpen || streaming) return;
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
       .then((stream) => {
         if (videoRef.current) {
@@ -70,7 +83,7 @@ function CameraBoothComponent({
         setError('Camera blocked. Preview is using the memory roll.');
         setStatusMessage('Camera blocked. You can still import photos.');
       });
-  }, [isOpen, streaming]);
+  }, [cameraStream, isOpen, streaming]);
 
   useEffect(() => {
     return () => {

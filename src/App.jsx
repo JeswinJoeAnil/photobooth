@@ -48,6 +48,21 @@ export default function App() {
   const [stripTab, setStripTab] = useState('text');
   const [mirrorOn, setMirrorOn] = useState(true);
   const [currentPage, setCurrentPage] = useState('capture');
+  const [cameraStream, setCameraStream] = useState(null);
+
+  /* Request camera permission immediately on page load */
+  useEffect(() => {
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      .then((stream) => {
+        setCameraStream(stream);
+      })
+      .catch(() => {
+        /* Permission denied or no camera — CameraBooth will handle fallback */
+      });
+    return () => {
+      /* Cleanup is handled by CameraBooth when unmounting */
+    };
+  }, []);
 
   useEffect(() => {
     PRELOAD_IMAGE_URLS.forEach((url) => {
@@ -192,6 +207,7 @@ export default function App() {
                 mirrorOn={mirrorOn}
                 setMirrorOn={setMirrorOn}
                 onCapture={playShutter}
+                cameraStream={cameraStream}
               />
               <CameraEditor
                 activeFilter={activeFilter}
