@@ -14,6 +14,7 @@ export function DecoHandles({ deco, setDecorations, elementRef }) {
     const startScaleX = deco.scaleX || 1;
     const startScaleY = deco.scaleY || 1;
 
+    const ac = new AbortController();
     const onMove = (moveEvent) => {
       const currentDist = Math.hypot(moveEvent.clientX - centerX, moveEvent.clientY - centerY);
       const ratio = currentDist / Math.max(1, startDist);
@@ -25,11 +26,11 @@ export function DecoHandles({ deco, setDecorations, elementRef }) {
     };
     const onUp = (upEvent) => {
       target.releasePointerCapture(upEvent.pointerId);
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
+      ac.abort();
     };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointermove', onMove, { signal: ac.signal });
+    target.addEventListener('pointerup', onUp, { signal: ac.signal });
+    target.addEventListener('pointercancel', onUp, { signal: ac.signal });
   };
 
   const handleRotate = (e) => {
@@ -43,6 +44,7 @@ export function DecoHandles({ deco, setDecorations, elementRef }) {
     const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
     const startRotation = deco.rotation || 0;
 
+    const ac = new AbortController();
     const onMove = (moveEvent) => {
       const currentAngle = Math.atan2(moveEvent.clientY - centerY, moveEvent.clientX - centerX) * (180 / Math.PI);
       let delta = currentAngle - startAngle;
@@ -52,11 +54,11 @@ export function DecoHandles({ deco, setDecorations, elementRef }) {
     };
     const onUp = (upEvent) => {
       target.releasePointerCapture(upEvent.pointerId);
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
+      ac.abort();
     };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointermove', onMove, { signal: ac.signal });
+    target.addEventListener('pointerup', onUp, { signal: ac.signal });
+    target.addEventListener('pointercancel', onUp, { signal: ac.signal });
   };
 
   const handleDelete = (e) => {

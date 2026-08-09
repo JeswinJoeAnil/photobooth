@@ -1,12 +1,11 @@
-import React, { memo, useCallback, useRef } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Download,
   Film,
   Grid2X2,
   Image as ImageIcon,
   Sparkles,
-  Video,
 } from 'lucide-react';
 import { renderExport } from '../utils/exportCanvas.js';
 import { DevelopingOverlay } from './DevelopingOverlay.jsx';
@@ -46,53 +45,132 @@ function MemoryLabComponent(props) {
     photoScales,
     setPhotoScales,
     stripBackground,
+    setStripBackground,
+    resultImage,
+    setResultImage,
+    exportOnly,
   } = props;
 
   const exportRef = useRef(null);
+  const blobUrlsRef = useRef([]);
+  const [exportStatus, setExportStatus] = useState('');
+
+  useEffect(() => {
+    const urls = blobUrlsRef.current;
+    return () => {
+      urls.forEach(u => URL.revokeObjectURL(u));
+    };
+  }, []);
 
   const exportCanvas = useCallback(async (type) => {
+    if (type !== 'png' && type !== 'jpg') {
+      setExportStatus('That export format is not available yet.');
+      return;
+    }
+
     setDeveloping(type);
+    setExportStatus(`Preparing ${type.toUpperCase()} download...`);
     try {
       await new Promise((resolve) => window.setTimeout(resolve, 1350));
-      if (type === 'png' || type === 'jpg') {
-        const canvas = await renderExport({
-          frame,
-          photos,
-          filter,
-          accent,
-          decorations,
-          doodlePaths,
-          zoom,
-          rotation,
-          vignette,
-          fitSettings,
-          photoScales,
-          timestamp,
-          stripBackground,
-        });
+      const canvas = await renderExport({
+        frame,
+        photos,
+        filter,
+        accent,
+        decorations,
+        doodlePaths,
+        zoom,
+        rotation,
+        vignette,
+        fitSettings,
+        photoScales,
+        timestamp,
+        stripBackground,
+      });
 
-        // Use toBlob instead of toDataURL to prevent "Download Failed" errors on large images
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            alert('Could not generate image. Please try again.');
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.download = `memorie-${frame.id}.${type === 'png' ? 'png' : 'jpg'}`;
-          link.href = url;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(url), 100);
-        }, type === 'png' ? 'image/png' : 'image/jpeg', 0.92);
-      }
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((value) => {
+          if (value) resolve(value);
+          else reject(new Error('Could not generate image.'));
+        }, type === 'png' ? 'image/png' : 'image/jpeg');
+      });
+
+      const url = URL.createObjectURL(blob);
+      blobUrlsRef.current.push(url);
+      const link = document.createElement('a');
+      link.download = `memorie-${frame.id}.${type === 'png' ? 'png' : 'jpg'}`;
+      link.href = url;
+      link.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        blobUrlsRef.current = blobUrlsRef.current.filter(u => u !== url);
+      }, 100);
+      setExportStatus(`${type.toUpperCase()} downloaded.`);
     } catch (err) {
       console.error('Export failed:', err);
-      alert('Download failed. One of the assets might have failed to load.');
+      setExportStatus('Download failed. One of the assets might have failed to load.');
     } finally {
       setDeveloping(null);
     }
-  }, [accent, decorations, doodlePaths, filter, fitSettings, frame, photos, photoScales, rotation, setDeveloping, timestamp, vignette, zoom]);
+  }, [accent, decorations, doodlePaths, filter, fitSettings, frame, photos, photoScales, rotation, setDeveloping, stripBackground, timestamp, vignette, zoom]);
 
+  const downloadSingleImage = useCallback((img, index) => {
+    const link = document.createElement('a');
+    link.href = img;
+    link.download = `memorie-photo-${index + 1}.png`;
+    link.click();
+    setExportStatus(`Photo ${index + 1} downloaded.`);
+  }, []);
+
+  /* ── exportOnly mode: only render export buttons + overlays ── */
+  if (exportOnly) {
+    return (
+      <>
+        <div className="export-grid">
+          <button type="button" onClick={() => exportCanvas('png')}><ImageIcon size={18} /> Photo Strip <span>PNG</span><Download size={16} /></button>
+          <button type="button" onClick={() => exportCanvas('jpg')}><Grid2X2 size={18} /> Collage <span>JPG</span><Download size={16} /></button>
+        </div>
+        {exportStatus && <p className="export-status" role="status" aria-live="polite">{exportStatus}</p>}
+        <AnimatePresence>
+          {resultImage && (
+            <motion.div
+              className="mobile-result-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                URL.revokeObjectURL(resultImage);
+                setResultImage?.(null);
+              }}
+            >
+              <div className="mobile-result-content" onClick={e => e.stopPropagation()}>
+                <div className="mobile-result-header">
+                  <h3>Save your Memory</h3>
+                  <p>Long press the image to save it to your photos</p>
+                </div>
+                <div className="result-img-container">
+                  <img src={resultImage} alt="Your photobooth strip" />
+                </div>
+                <button
+                  type="button"
+                  className="close-result"
+                  onClick={() => {
+                    URL.revokeObjectURL(resultImage);
+                    setResultImage?.(null);
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>{developing && <DevelopingOverlay type={developing} />}</AnimatePresence>
+      </>
+    );
+  }
+
+  /* ── Full layout mode (used outside editor-split) ── */
   return (
     <section id="memory-lab" className="memory-lab">
       {onShuffle && (
@@ -148,6 +226,8 @@ function MemoryLabComponent(props) {
         setFitSettings={setFitSettings}
         mode={mode}
         onShuffle={onShuffle}
+        stripBackground={stripBackground}
+        setStripBackground={setStripBackground}
       />
 
       <div className="memory-sidebar">
@@ -157,16 +237,42 @@ function MemoryLabComponent(props) {
           <div className="export-grid">
             <button type="button" onClick={() => exportCanvas('png')}><ImageIcon size={18} /> Photo Strip <span>PNG</span><Download size={16} /></button>
             <button type="button" onClick={() => exportCanvas('jpg')}><Grid2X2 size={18} /> Collage <span>JPG</span><Download size={16} /></button>
-            <button type="button" onClick={() => exportCanvas('gif')}><Film size={18} /> Animated GIF <span>GIF</span><Download size={16} /></button>
-            <button type="button" onClick={() => exportCanvas('mp4')}><Video size={18} /> Video Reel <span>MP4</span><Download size={16} /></button>
           </div>
-          <div className="share-row">
-            <span>Share to</span>
-            <button type="button">IG</button>
-            <button type="button">TT</button>
-            <button type="button">X</button>
-            <button type="button">URL</button>
-          </div>
+          {exportStatus && <p className="export-status" role="status" aria-live="polite">{exportStatus}</p>}
+          <AnimatePresence>
+            {resultImage && (
+              <motion.div
+                className="mobile-result-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => {
+                  URL.revokeObjectURL(resultImage);
+                  setResultImage?.(null);
+                }}
+              >
+                <div className="mobile-result-content" onClick={e => e.stopPropagation()}>
+                  <div className="mobile-result-header">
+                    <h3>Save your Memory</h3>
+                    <p>Long press the image to save it to your photos</p>
+                  </div>
+                  <div className="result-img-container">
+                    <img src={resultImage} alt="Your photobooth strip" />
+                  </div>
+                  <button
+                    type="button"
+                    className="close-result"
+                    onClick={() => {
+                      URL.revokeObjectURL(resultImage);
+                      setResultImage?.(null);
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <AnimatePresence>{developing && <DevelopingOverlay type={developing} />}</AnimatePresence>
         </div>
 
@@ -175,8 +281,10 @@ function MemoryLabComponent(props) {
           <div className="roll-previews">
             {captured && captured.slice(-4).reverse().map((img, i) => (
               <div key={i} className="roll-item">
-                <img src={img} alt="" />
-                <button type="button" className="roll-dl"><Download size={12} /></button>
+                <img src={img} alt={`Captured photo ${captured.length - i}`} />
+                <button type="button" className="roll-dl" onClick={() => downloadSingleImage(img, captured.length - i - 1)} aria-label={`Download captured photo ${captured.length - i}`}>
+                  <Download size={12} />
+                </button>
               </div>
             ))}
             {(!captured || captured.length === 0) && (

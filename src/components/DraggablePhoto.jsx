@@ -1,5 +1,5 @@
-import React, { memo, useRef } from 'react';
-import { motion } from 'framer-motion';
+import React, { memo, useCallback, useRef } from 'react';
+import { motion, useDragControls } from 'framer-motion';
 import { DecoHandles } from './DecoHandles.jsx';
 
 function DraggablePhotoComponent({ 
@@ -15,14 +15,23 @@ function DraggablePhotoComponent({
   onPointerDown 
 }) {
   const elementRef = useRef(null);
+  const dragControls = useDragControls();
+
+  const handlePointerDown = useCallback((e) => {
+    if (e.target.closest('.deco-handle')) return;
+    onPointerDown(e);
+    dragControls.start(e);
+  }, [dragControls, onPointerDown]);
   
   return (
     <motion.div
       ref={elementRef}
       className={`photo-slot ${isActive ? 'active-deco' : ''}`}
       drag
+      dragControls={dragControls}
+      dragListener={false}
       dragMomentum={false}
-      onPointerDown={onPointerDown}
+      onPointerDown={handlePointerDown}
       whileDrag={{ scale: 1.035, zIndex: 5 }}
       style={{
         rotate: rotation + (index % 2 ? 1.5 : -1.2),
@@ -40,7 +49,7 @@ function DraggablePhotoComponent({
           background: '#000',
           pointerEvents: 'none'
         }}
-        alt=""
+        alt={`Photo ${index + 1} in the strip`}
       />
       <span>{String(index + 1).padStart(2, '0')}</span>
       {isActive && (

@@ -1,14 +1,29 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { MessageSquare, X } from 'lucide-react';
 
-export function MobileMenu({ isOpen, onClose, onFeedbackOpen }) {
-  const links = [
-    { label: 'Booth', href: '#booth' },
-    { label: 'Templates', href: '#templates' },
-    { label: 'Gallery', href: '#memory-lab' },
-    { label: 'Export', href: '#export' },
-  ];
+export function MobileMenu({ isOpen, onClose, onFeedbackOpen, currentPage = 'capture', capturedCount = 0, onGoToEditor }) {
+  const closeButtonRef = useRef(null);
+  const links = currentPage === 'editor'
+    ? [
+      { label: 'Templates', href: '#templates' },
+      { label: 'Editor', href: '#memory-lab' },
+      { label: 'Export', href: '#export' },
+    ]
+    : [
+      { label: 'Booth', href: '#booth' },
+      { label: 'Templates', href: '#templates' },
+    ];
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    closeButtonRef.current?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   return (
     <AnimatePresence>
@@ -23,14 +38,18 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen }) {
           <div className="menu-backdrop" onClick={onClose} role="presentation" />
           <motion.div
             className="menu-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-menu-title"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           >
-            <button type="button" className="close-menu" onClick={onClose}>
+            <button type="button" className="close-menu" onClick={onClose} aria-label="Close menu" ref={closeButtonRef}>
               <X size={24} />
             </button>
+            <h2 id="mobile-menu-title" className="sr-only">Menu</h2>
             <div className="menu-links">
               {links.map((link, idx) => (
                 <motion.a
@@ -45,6 +64,20 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen }) {
                   {link.label}
                 </motion.a>
               ))}
+              {currentPage === 'capture' && capturedCount > 0 && (
+                <motion.button
+                  type="button"
+                  className="menu-feedback-btn menu-edit-btn"
+                  onClick={() => { onClose(); onGoToEditor?.(); }}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.28 }}
+                  whileHover={{ scale: 1.05, x: 5 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Edit strip
+                </motion.button>
+              )}
               <motion.button
                 type="button"
                 className="menu-feedback-btn"

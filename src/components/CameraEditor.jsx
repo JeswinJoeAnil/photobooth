@@ -26,9 +26,16 @@ function CameraEditorComponent(props) {
   return (
     <motion.section className="booth-card camera-editor-card" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ type: 'spring', delay: 0.08 }}>
       <div className="section-title"><Sparkles size={18} /><span>Live Effects</span></div>
-      <div className="tool-tabs">
+      <div className="tool-tabs" role="tablist" aria-label="Live effect controls">
         {tabs.map((tab) => (
-          <button key={tab.id} type="button" className={editorTab === tab.id ? 'active' : ''} onClick={() => setEditorTab(tab.id)}>
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={editorTab === tab.id}
+            className={editorTab === tab.id ? 'active' : ''}
+            onClick={() => setEditorTab(tab.id)}
+          >
             <tab.icon size={20} />
             <span>{tab.label}</span>
           </button>
@@ -40,8 +47,8 @@ function CameraEditorComponent(props) {
           <>
             <div className="filter-grid">
               {filters.map((f) => (
-                <button key={f.id} type="button" className={activeFilter.id === f.id ? 'active' : ''} onClick={() => setActiveFilter(f)}>
-                  <img src={f.preview} style={{ filter: f.css }} alt="" />
+                <button key={f.id} type="button" className={activeFilter.id === f.id ? 'active' : ''} onClick={() => setActiveFilter(f)} aria-pressed={activeFilter.id === f.id}>
+                  <img src={f.preview} style={{ filter: f.css }} alt="" aria-hidden="true" />
                   <span>{f.name}</span>
                 </button>
               ))}

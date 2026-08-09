@@ -28,17 +28,21 @@ function PhotoResultComponent({
   const wrapperRef = useRef(null);
   const stripRef = useRef(null);
   const [scale, setScale] = useState(1);
+  const [marginBottomVal, setMarginBottomVal] = useState(0);
 
   useEffect(() => {
     if (!wrapperRef.current || !stripRef.current) return;
     const compute = () => {
-      const wW = wrapperRef.current.clientWidth - 32;
-      const wH = wrapperRef.current.clientHeight - 32;
-      const sW = stripRef.current.offsetWidth;
-      const sH = stripRef.current.offsetHeight;
-      if (!sW || !sH) return;
+      const wW = wrapperRef.current.clientWidth > 0 ? wrapperRef.current.clientWidth - 32 : 340;
+      const rawH = wrapperRef.current.clientHeight;
+      const wH = (rawH > 100 ? rawH : 550) - 32;
+      const sW = stripRef.current.offsetWidth || 380;
+      const sH = stripRef.current.offsetHeight || 800;
+      if (!sW || !sH || wW <= 0) return;
       const s = Math.min(wW / sW, wH / sH, 1);
-      setScale(s);
+      const safeScale = Math.max(s, 0.42);
+      setScale(safeScale);
+      setMarginBottomVal(safeScale < 1 ? -(stripRef.current.offsetHeight * (1 - safeScale)) : 0);
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -62,6 +66,8 @@ function PhotoResultComponent({
       <div
         ref={stripRef}
         className={`photo-result frame-${frame.id}`}
+        role="img"
+        aria-label={`Photo strip preview using the ${frame.name} template with ${photos.length} photos`}
         style={{
           '--accent': accent,
           '--vignette': `${vignette / 100}`,
@@ -70,16 +76,14 @@ function PhotoResultComponent({
             : (stripBackground?.value || ''),
           transform: `scale(${scale}) rotate(-1.5deg)`,
           transformOrigin: 'top center',
-          marginBottom: scale < 1
-            ? `${-((stripRef.current?.offsetHeight ?? 0) * (1 - scale))}px`
-            : '0px',
+          marginBottom: `${marginBottomVal}px`,
         }}
         onClick={onStripBackdropClick}
       >
         <div className="result-meta">{timestamp.time} / {timestamp.date}</div>
            {photos.map((photo, index) => (
             <DraggablePhoto 
-              key={`${photo}-${index}`} 
+              key={`photo-${index}`} 
               photo={photo} 
               filter={filter} 
               index={index} 

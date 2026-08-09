@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Film,
   Grid2X2,
-  RefreshCcw,
   Sparkles,
 } from 'lucide-react';
 import { CameraOverlay } from './CameraOverlay.jsx';
@@ -14,7 +13,7 @@ const PhotoStack = memo(function PhotoStackComponent({ photos, filter }) {
   return (
     <div className="photo-stack">
       {photos.map((photo, index) => (
-        <motion.img key={photo} src={photo} style={{ filter: filter.css }} alt="" initial={{ opacity: 0, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} animate={{ opacity: 1, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} transition={{ delay: index * 0.08 }} />
+        <motion.img key={index} src={photo} style={{ filter: filter.css }} alt="" initial={{ opacity: 0, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} animate={{ opacity: 1, rotate: -5 + index * 4, x: index * 18, y: index * -8 }} transition={{ delay: index * 0.08 }} />
       ))}
     </div>
   );
@@ -61,31 +60,30 @@ function HeroComponent({ onStart, photos, filter, timestamp }) {
       <div className="hero-copy">
         <motion.div className="tag" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>digital memories, made beautiful</motion.div>
         <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
-          your moments,<br />
-          <span>but make it</span>
+          Make a photo strip<br />
+          <span>that feels</span>
           <em> ICONIC</em>
         </motion.h1>
         <motion.p initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
-          A nostalgic photobooth experience with glossy camera frames, scrapbook strips, cinematic filters, and tiny 2004 feelings polished for now.
+          Capture with your camera or import your favorite shots, then style the strip with filters, templates, stickers, and clean downloads.
         </motion.p>
         <div className="hero-actions">
           <motion.button type="button" className="start-button" whileTap={{ scale: 0.95 }} whileHover={{ y: -3 }} onClick={onStart}>
             Start Booth <ChevronRight size={22} />
           </motion.button>
-          <span className="scribble-note">press here!</span>
+          <a className="supporting-action" href="#templates">Browse templates</a>
         </div>
       </div>
 
-      <motion.div className="hero-camera" style={{ x: springX, y: springY, rotate }}>
+      <motion.div className="hero-camera" style={{ x: springX, y: springY, rotate }} aria-hidden="true">
         <div className="camera-shell">
           <div className="camera-screen">
             <PhotoStack photos={heroPhotos} filter={filter} />
             <CameraOverlay timestamp={timestamp} />
           </div>
           <div className="camera-controls">
-            <button type="button"><RefreshCcw size={15} /></button>
-            <button type="button"><Sparkles size={15} /></button>
-            <button type="button" className="shutter"><Camera size={28} /></button>
+            <span className="camera-dot"><Sparkles size={15} /></span>
+            <span className="shutter"><Camera size={28} /></span>
             <span>Y2K</span>
           </div>
         </div>

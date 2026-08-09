@@ -9,7 +9,7 @@ import {
   Type,
   Wand2,
 } from 'lucide-react';
-import { asset, stickers, BACKGROUNDS } from '../constants/assets.js';
+import { asset, stickerCategories, BACKGROUNDS } from '../constants/assets.js';
 import { Slider } from './Slider.jsx';
 
 function StripEditorComponent(props) {
@@ -41,7 +41,7 @@ function StripEditorComponent(props) {
     { id: 'text', icon: Type, label: 'Text' },
     { id: 'stickers', icon: Sticker, label: 'Stickers' },
     { id: 'doodle', icon: MousePointer2, label: 'Doodle' },
-    { id: 'bg', icon: ImageIcon, label: 'Back' },
+    { id: 'bg', icon: ImageIcon, label: 'Background' },
     { id: 'layout', icon: Layout, label: 'Layout' },
   ];
 
@@ -49,10 +49,9 @@ function StripEditorComponent(props) {
 
   const handleAddText = useCallback(() => {
     const newId = Date.now().toString();
-    const randomBg = ['#ff5aaf', '#00ffcc', '#ffcc00', '#cc00ff', '#111111', '#ff4444', '#44aaff'][Math.floor(Math.random() * 7)];
     setDecorations([...decorations, { id: newId, type: 'text', content: 'New Text', x: 50, y: 50, rotation: 0, scaleX: 1, scaleY: 1, font: 'Inter', color: '#ffffff', bgColor: 'transparent', showBg: false }]);
     setActiveDecoId(newId);
-  }, [accentColor, decorations, setActiveDecoId, setDecorations]);
+  }, [decorations, setActiveDecoId, setDecorations]);
 
   const handleAddSticker = useCallback((stickerContent) => {
     const newId = Date.now().toString();
@@ -87,8 +86,6 @@ function StripEditorComponent(props) {
     setFitSettings(prev => ({ ...prev, [i]: 'contain' }));
   }, [setFitSettings]);
 
-  const clearDoodles = useCallback(() => setDoodlePaths([]), [setDoodlePaths]);
-
   return (
     <div className="strip-editor">
       <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
@@ -112,9 +109,16 @@ function StripEditorComponent(props) {
           </button>
         )}
       </div>
-      <div className="tool-tabs">
+      <div className="tool-tabs" role="tablist" aria-label="Strip editing tools">
         {tabs.map((tab) => (
-          <button key={tab.id} type="button" className={stripTab === tab.id ? 'active' : ''} onClick={() => setStripTab(tab.id)}>
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={stripTab === tab.id}
+            className={stripTab === tab.id ? 'active' : ''}
+            onClick={() => setStripTab(tab.id)}
+          >
             <tab.icon size={20} />
             <span>{tab.label}</span>
           </button>
@@ -150,18 +154,28 @@ function StripEditorComponent(props) {
                 </div>
               </div>
             ) : (
-              <button type="button" className="pill-button add-text-btn" onClick={handleAddText} style={{ width: '100%' }}>+ Add Text Sticker</button>
+              <button type="button" className="pill-button add-text-btn" onClick={handleAddText} style={{ width: '100%' }}>Add caption</button>
             )}
           </div>
         )}
         {stripTab === 'stickers' && (
           <div className="sticker-panel">
             <p className="panel-hint">Click a sticker to add it to your strip</p>
-            <div className="sticker-grid" style={{ maxHeight: '300px', overflowY: 'auto' }}>
-              {stickers.map((s) => (
-                <button key={s} type="button" className="sticker-chip" onClick={() => handleAddSticker(s)} style={{ padding: s.endsWith('.png') ? '4px' : undefined, minHeight: s.endsWith('.png') ? '80px' : undefined }}>
-                  {s.endsWith('.png') ? <img src={asset(s)} style={{ maxWidth: '100%', maxHeight: '60px', objectFit: 'contain' }} alt="" /> : s}
-                </button>
+            <div className="sticker-category-list">
+              {stickerCategories.map((category) => (
+                <section className="sticker-category" key={category.id} aria-labelledby={`sticker-category-${category.id}`}>
+                  <div className="sticker-category-heading">
+                    <h3 id={`sticker-category-${category.id}`}>{category.name}</h3>
+                    <span>{category.vibe}</span>
+                  </div>
+                  <div className="sticker-grid">
+                    {category.items.map((s) => (
+                      <button key={`${category.id}-${s}`} type="button" className={`sticker-chip ${s.endsWith('.png') ? 'image-sticker-chip' : ''}`} onClick={() => handleAddSticker(s)} aria-label={`Add ${s.endsWith('.png') ? 'image sticker' : s}`}>
+                        {s.endsWith('.png') ? <img src={asset(s)} alt="" aria-hidden="true" /> : s}
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           </div>
@@ -170,11 +184,11 @@ function StripEditorComponent(props) {
           <div className="doodle-panel">
             <p className="panel-hint">Pick a brush and draw directly on the strip</p>
             <div className="sticker-grid">
-              <button type="button" className={`sticker-chip ${doodleBrush.color === '#ff5aaf' ? 'active' : ''}`} onClick={() => setDoodleBrush({ color: '#ff5aaf', size: 6, shadow: 0 })}>Pink</button>
-              <button type="button" className={`sticker-chip ${doodleBrush.color === '#00ffcc' ? 'active' : ''}`} onClick={() => setDoodleBrush({ color: '#00ffcc', size: 4, shadow: 8 })}>Neon Glow</button>
-              <button type="button" className={`sticker-chip ${doodleBrush.color === '#ffffff' ? 'active' : ''}`} onClick={() => setDoodleBrush({ color: '#ffffff', size: 3, shadow: 0 })}>White Pen</button>
-              <button type="button" className={`sticker-chip ${doodleBrush.color === '#000000' ? 'active' : ''}`} onClick={() => setDoodleBrush({ color: '#000000', size: 8, shadow: 0 })}>Black Marker</button>
-              <button type="button" className="sticker-chip" onClick={clearDoodles} style={{ marginLeft: 'auto' }}>Clear All</button>
+              <button type="button" className={`sticker-chip ${doodleBrush?.color === '#ff5aaf' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#ff5aaf', size: 6, shadow: 0 })}>Pink</button>
+              <button type="button" className={`sticker-chip ${doodleBrush?.color === '#00ffcc' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#00ffcc', size: 4, shadow: 8 })}>Neon Glow</button>
+              <button type="button" className={`sticker-chip ${doodleBrush?.color === '#ffffff' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#ffffff', size: 3, shadow: 0 })}>White Pen</button>
+              <button type="button" className={`sticker-chip ${doodleBrush?.color === '#000000' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#000000', size: 8, shadow: 0 })}>Black Marker</button>
+              <button type="button" className="sticker-chip" onClick={() => setDoodlePaths?.([])}>Clear All</button>
             </div>
           </div>
         )}
@@ -222,7 +236,9 @@ function StripEditorComponent(props) {
                   key={bg.id}
                   type="button"
                   className={`bg-swatch ${stripBackground?.id === bg.id ? 'active' : ''}`}
-                  onClick={() => setStripBackground(bg)}
+                  onClick={() => setStripBackground?.(bg)}
+                  aria-pressed={stripBackground?.id === bg.id}
+                  aria-label={`Use ${bg.label} background`}
                   title={bg.label}
                   style={{
                     background: bg.type === 'solid' ? bg.value : `linear-gradient(135deg, ${bg.from}, ${bg.to})`,
@@ -247,6 +263,7 @@ function StripEditorComponent(props) {
                     <button
                       type="button"
                       onClick={() => setCoverForSlot(i)}
+                      aria-pressed={!fitSettings[i] || fitSettings[i] === 'cover'}
                       style={{
                         padding: '6px 10px', borderRadius: '6px', border: 0, fontSize: '11px', fontWeight: 700, cursor: 'pointer',
                         background: (!fitSettings[i] || fitSettings[i] === 'cover') ? '#fff' : 'transparent',
@@ -258,6 +275,7 @@ function StripEditorComponent(props) {
                     <button
                       type="button"
                       onClick={() => setContainForSlot(i)}
+                      aria-pressed={fitSettings[i] === 'contain'}
                       style={{
                         padding: '6px 10px', borderRadius: '6px', border: 0, fontSize: '11px', fontWeight: 700, cursor: 'pointer',
                         background: fitSettings[i] === 'contain' ? '#fff' : 'transparent',

@@ -14,15 +14,33 @@ function HeaderComponent({
   nextTrack,
   onFeedbackOpen,
   onMenuOpen,
+  currentPage = 'capture',
+  capturedCount = 0,
+  onGoToEditor,
 }) {
+  const links = currentPage === 'editor'
+    ? [
+      { label: 'Templates', href: '#templates' },
+      { label: 'Editor', href: '#memory-lab' },
+      { label: 'Export', href: '#export' },
+    ]
+    : [
+      { label: 'Booth', href: '#booth' },
+      { label: 'Templates', href: '#templates' },
+    ];
+
   return (
     <motion.header className="site-header" initial={{ y: -36, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 90, damping: 14 }}>
       <a className="brand" href="#top">memorie<span>+</span></a>
-      <nav className="desktop-nav">
-        <a href="#booth">Booth</a>
-        <a href="#templates">Templates</a>
-        <a href="#memory-lab">Gallery</a>
-        <a href="#export">Export</a>
+      <nav className="desktop-nav" aria-label="Primary navigation">
+        {links.map((link) => (
+          <a key={link.href} href={link.href}>{link.label}</a>
+        ))}
+        {currentPage === 'capture' && capturedCount > 0 && (
+          <button type="button" className="nav-action-btn" onClick={onGoToEditor}>
+            Edit strip
+          </button>
+        )}
         <button type="button" className="feedback-link-btn" onClick={onFeedbackOpen}>
           <MessageSquare size={14} /> Feedback
         </button>
@@ -35,7 +53,7 @@ function HeaderComponent({
             <Sparkles size={14} />
           </button>
           {audioOn && (
-            <button type="button" className="icon-button skip-button" onClick={nextTrack} title="Next track">
+            <button type="button" className="icon-button skip-button" onClick={nextTrack} aria-label="Play next track" title="Next track">
               <RefreshCcw size={16} />
             </button>
           )}

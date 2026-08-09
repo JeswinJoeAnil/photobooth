@@ -5,7 +5,6 @@ import {
   Camera,
   Sparkles,
 } from 'lucide-react';
-import { frames } from '../constants/assets.js';
 import { CameraEditor } from './CameraEditor.jsx';
 import { TemplateRail } from './TemplateRail.jsx';
 import { MemoryLab } from './MemoryLab.jsx';
@@ -54,6 +53,7 @@ function EditorPageComponent(props) {
     editorTab,
     setEditorTab,
     stripBackground,
+    setStripBackground,
   } = props;
 
   return (
@@ -138,6 +138,7 @@ function EditorPageComponent(props) {
           mode={mode}
           onShuffle={onShuffle}
           stripBackground={stripBackground}
+          setStripBackground={setStripBackground}
         />
       </section>
       <Footer />
