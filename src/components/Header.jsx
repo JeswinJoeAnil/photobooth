@@ -114,7 +114,9 @@ function HeaderComponent({
           </button>
         )}
         <button type="button" className="studio-nav-btn" onClick={onStudioOpen}>
-          <Sparkles size={13} /> STUDIO <span className="studio-nav-star">✦</span>
+          <Sparkles size={13} className="studio-sparkle-icon" />
+          <span className="studio-text">STUDIO</span>
+          <span className="studio-nav-star">✦</span>
         </button>
         <button type="button" className="feedback-link-btn" onClick={onFeedbackOpen}>
           <MessageSquare size={14} /> Feedback
