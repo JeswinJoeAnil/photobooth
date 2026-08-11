@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   CassetteTape,
@@ -14,10 +14,64 @@ function HeaderComponent({
   nextTrack,
   onFeedbackOpen,
   onMenuOpen,
+  onStudioOpen,
   currentPage = 'capture',
   capturedCount = 0,
   onGoToEditor,
+  isMenuOpen = false,
 }) {
+  const [isVisible, setIsVisible] = useState(true);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    let ticking = false;
+    let accumulatedDelta = 0;
+
+    const updateScroll = () => {
+      // Clamp scrollY to 0 to eliminate mobile bounce/rubber-banding jitter
+      const currentScrollY = Math.max(0, window.scrollY);
+
+      setIsScrolled(currentScrollY > 20);
+
+      if (isMenuOpen || currentScrollY <= 60) {
+        setIsVisible(true);
+        accumulatedDelta = 0;
+      } else {
+        const diff = currentScrollY - lastScrollY.current;
+
+        // Reset accumulator if scrolling direction changes
+        if ((diff > 0 && accumulatedDelta < 0) || (diff < 0 && accumulatedDelta > 0)) {
+          accumulatedDelta = 0;
+        }
+
+        accumulatedDelta += diff;
+
+        // Hide smoothly when committed scroll down >= 24px
+        if (accumulatedDelta > 24) {
+          setIsVisible(false);
+        }
+        // Reveal smoothly when committed scroll up <= -18px
+        else if (accumulatedDelta < -18) {
+          setIsVisible(true);
+        }
+      }
+
+      lastScrollY.current = currentScrollY;
+      ticking = false;
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(updateScroll);
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isMenuOpen]);
+
   const links = currentPage === 'editor'
     ? [
       { label: 'Templates', href: '#templates' },
@@ -30,7 +84,25 @@ function HeaderComponent({
     ];
 
   return (
-    <motion.header className="site-header" initial={{ y: -36, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 90, damping: 14 }}>
+    <motion.header
+      className={`site-header ${isVisible ? 'header-visible' : 'header-hidden'} ${isScrolled ? 'scrolled' : ''}`}
+      initial={{ y: -40, opacity: 0, scale: 0.98 }}
+      animate={{
+        y: isVisible ? 0 : -84,
+        opacity: isVisible ? 1 : 0,
+        scale: isVisible ? 1 : 0.98,
+      }}
+      transition={{
+        type: 'spring',
+        stiffness: 130,
+        damping: 21,
+        mass: 0.8,
+      }}
+      style={{
+        pointerEvents: isVisible ? 'auto' : 'none',
+        willChange: 'transform, opacity',
+      }}
+    >
       <a className="brand" href="#top">memorie<span>+</span></a>
       <nav className="desktop-nav" aria-label="Primary navigation">
         {links.map((link) => (
@@ -41,6 +113,9 @@ function HeaderComponent({
             Edit strip
           </button>
         )}
+        <button type="button" className="studio-nav-btn" onClick={onStudioOpen}>
+          <Sparkles size={13} /> STUDIO <span className="studio-nav-star">✦</span>
+        </button>
         <button type="button" className="feedback-link-btn" onClick={onFeedbackOpen}>
           <MessageSquare size={14} /> Feedback
         </button>
@@ -68,3 +143,4 @@ function HeaderComponent({
 }
 
 export const Header = memo(HeaderComponent);
+

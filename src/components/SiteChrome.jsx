@@ -11,6 +11,7 @@ export function SiteChrome({
   currentPage,
   capturedCount,
   onGoToEditor,
+  onStudioOpen,
 }) {
   const [isFeedbackOpen, setFeedbackOpen] = useState(false);
   const [isMenuOpen, setMenuOpen] = useState(false);
@@ -33,9 +34,11 @@ export function SiteChrome({
         nextTrack={nextTrack}
         onFeedbackOpen={onFeedbackOpen}
         onMenuOpen={onMenuOpen}
+        onStudioOpen={onStudioOpen}
         currentPage={currentPage}
         capturedCount={capturedCount}
         onGoToEditor={onGoToEditor}
+        isMenuOpen={isMenuOpen}
       />
       <AnimatePresence>
         {isFeedbackOpen && (
@@ -52,6 +55,7 @@ export function SiteChrome({
         currentPage={currentPage}
         capturedCount={capturedCount}
         onGoToEditor={onGoToEditor}
+        onStudioOpen={onStudioOpen}
       />
     </>
   );

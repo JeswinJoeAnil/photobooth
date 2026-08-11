@@ -4,7 +4,6 @@ import {
   Image as ImageIcon,
   Layout,
   MousePointer2,
-  Sparkles,
   Sticker,
   Type,
   Wand2,
@@ -22,7 +21,6 @@ function StripEditorComponent(props) {
     setDoodlePaths,
     doodleBrush,
     setDoodleBrush,
-    accentColor,
     zoom,
     setZoom,
     rotation,
@@ -31,13 +29,13 @@ function StripEditorComponent(props) {
     setStripTab,
     fitSettings,
     setFitSettings,
-  mode,
-  onShuffle,
-  onUndoShuffle,
-  canUndoShuffle,
-  stripBackground,
-  setStripBackground,
-} = props;
+    mode,
+    onShuffle,
+    onUndoShuffle,
+    canUndoShuffle,
+    stripBackground,
+    setStripBackground,
+  } = props;
 
   const tabs = [
     { id: 'text', icon: Type, label: 'Text' },
@@ -154,7 +152,6 @@ function StripEditorComponent(props) {
                       <option value="Coming Soon">Coming Soon</option>
                       <option value="Permanent Marker">Marker</option>
                       <option value="Inter">Classic Inter</option>
-
                     </select>
                   </label>
                   <label><span>Color</span><input type="color" value={activeDeco.color} onChange={(e) => updateActiveDeco({ color: e.target.value })} /></label>
@@ -210,8 +207,26 @@ function StripEditorComponent(props) {
                     <button type="button" onClick={deselectDeco} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}>Deselect</button>
                   </div>
                 </div>
-                <Slider label="Size" value={Math.round((activeDeco.scaleX || 1) * 100)} setValue={(v) => updateActiveDeco({ scaleX: v / 100, scaleY: v / 100 })} min={10} max={300} />
+                <Slider label="Overall Size" value={Math.round(Math.max(Math.abs(activeDeco.scaleX || 1), Math.abs(activeDeco.scaleY || 1)) * 100)} setValue={(v) => updateActiveDeco({ scaleX: (activeDeco.scaleX < 0 ? -1 : 1) * (v / 100), scaleY: (activeDeco.scaleY < 0 ? -1 : 1) * (v / 100) })} min={10} max={300} />
+                <Slider label="Stretch Width (X)" value={Math.round(Math.abs(activeDeco.scaleX || 1) * 100)} setValue={(v) => updateActiveDeco({ scaleX: (activeDeco.scaleX < 0 ? -1 : 1) * (v / 100) })} min={10} max={400} />
+                <Slider label="Stretch Height (Y)" value={Math.round(Math.abs(activeDeco.scaleY || 1) * 100)} setValue={(v) => updateActiveDeco({ scaleY: (activeDeco.scaleY < 0 ? -1 : 1) * (v / 100) })} min={10} max={400} />
                 <Slider label="Rotate" value={activeDeco.rotation} setValue={(v) => updateActiveDeco({ rotation: v })} min={-180} max={180} />
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                  <button type="button" className="pill-button" onClick={() => {
+                    const maxScale = Math.max(Math.abs(activeDeco.scaleX || 1), Math.abs(activeDeco.scaleY || 1));
+                    updateActiveDeco({ scaleX: maxScale, scaleY: maxScale });
+                  }} style={{ fontSize: '11px', padding: '4px 10px', height: 'auto', background: 'rgba(255,255,255,0.1)' }}>
+                    Reset Aspect
+                  </button>
+                  <button type="button" className="pill-button" onClick={() => updateActiveDeco({ scaleX: -(activeDeco.scaleX || 1) })} style={{ fontSize: '11px', padding: '4px 10px', height: 'auto', background: 'rgba(255,255,255,0.1)' }}>
+                    Flip ↔
+                  </button>
+                  <button type="button" className="pill-button" onClick={() => updateActiveDeco({ scaleY: -(activeDeco.scaleY || 1) })} style={{ fontSize: '11px', padding: '4px 10px', height: 'auto', background: 'rgba(255,255,255,0.1)' }}>
+                    Flip ↕
+                  </button>
+                </div>
+
                 <div style={{ display: 'flex', gap: '12px', marginTop: '12px', alignItems: 'center' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer', color: 'var(--fg)' }}>
                     <input type="checkbox" checked={activeDeco.showBg !== false} onChange={(e) => updateActiveDeco({ showBg: e.target.checked })} />
@@ -271,25 +286,19 @@ function StripEditorComponent(props) {
                       type="button"
                       onClick={() => setCoverForSlot(i)}
                       aria-pressed={!fitSettings[i] || fitSettings[i] === 'cover'}
-                      style={{
-                        padding: '6px 10px', borderRadius: '6px', border: 0, fontSize: '11px', fontWeight: 700, cursor: 'pointer',
-                        background: (!fitSettings[i] || fitSettings[i] === 'cover') ? '#fff' : 'transparent',
-                        boxShadow: (!fitSettings[i] || fitSettings[i] === 'cover') ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
-                      }}
+                      className={!fitSettings[i] || fitSettings[i] === 'cover' ? 'active' : ''}
+                      style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, background: (!fitSettings[i] || fitSettings[i] === 'cover') ? '#fff' : 'transparent', boxShadow: (!fitSettings[i] || fitSettings[i] === 'cover') ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}
                     >
-                      Crop to Fill
+                      Fill (Crop)
                     </button>
                     <button
                       type="button"
                       onClick={() => setContainForSlot(i)}
                       aria-pressed={fitSettings[i] === 'contain'}
-                      style={{
-                        padding: '6px 10px', borderRadius: '6px', border: 0, fontSize: '11px', fontWeight: 700, cursor: 'pointer',
-                        background: fitSettings[i] === 'contain' ? '#fff' : 'transparent',
-                        boxShadow: fitSettings[i] === 'contain' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
-                      }}
+                      className={fitSettings[i] === 'contain' ? 'active' : ''}
+                      style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, background: fitSettings[i] === 'contain' ? '#fff' : 'transparent', boxShadow: fitSettings[i] === 'contain' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}
                     >
-                      Uncrop
+                      Fit (Uncrop)
                     </button>
                   </div>
                 </div>

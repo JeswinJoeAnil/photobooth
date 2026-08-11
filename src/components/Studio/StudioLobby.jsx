@@ -1,0 +1,167 @@
+import React, { memo, useCallback, useState } from 'react';
+import { motion } from 'framer-motion';
+import { Check, Copy, Sparkles, Users } from 'lucide-react';
+
+/**
+ * StudioLobby — Waiting room displayed after creating a studio.
+ *
+ * Shows the room code prominently, a copy button, participant count,
+ * and an "Enter Studio" button to proceed once friends join.
+ */
+function StudioLobbyComponent({ roomCode, participants, localStream, displayName, onEnterStudio, onLeave, mirrorOn = true }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyCode = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(roomCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* Clipboard API unavailable — select the text instead */
+      const el = document.getElementById('studio-room-code-display');
+      if (el) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  }, [roomCode]);
+
+  const totalParticipants = 1 + participants.length; /* self + remotes */
+
+  return (
+    <motion.div
+      className="studio-lobby"
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 120, damping: 18 }}
+    >
+      <div className="studio-lobby-header">
+        <div className="studio-brand-mark">
+          <Sparkles size={16} />
+          <span>MEMORIE STUDIO</span>
+        </div>
+      </div>
+
+      <div className="studio-lobby-code-section">
+        <span className="studio-lobby-code-label">Your Studio Code</span>
+        <div className="studio-lobby-code" id="studio-room-code-display">
+          {roomCode.split('').map((char, i) => (
+            <motion.span
+              key={i}
+              className="studio-code-char"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06 }}
+            >
+              {char}
+            </motion.span>
+          ))}
+        </div>
+        <p className="studio-lobby-hint">Share this code with your friends</p>
+        <motion.button
+          type="button"
+          className="studio-copy-btn"
+          onClick={copyCode}
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.96 }}
+        >
+          {copied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy Code</>}
+        </motion.button>
+      </div>
+
+      <div className="studio-lobby-divider" />
+
+      <div className="studio-lobby-participants">
+        <div className="studio-lobby-participants-header">
+          {participants.length === 0 ? (
+            <motion.span
+              className="studio-waiting-text"
+              animate={{ opacity: [0.5, 1, 0.5] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              Waiting for friends...
+            </motion.span>
+          ) : (
+            <span className="studio-connected-text">
+              <Users size={16} /> {totalParticipants} in studio
+            </span>
+          )}
+        </div>
+
+        <div className="studio-lobby-avatars">
+          {/* Self */}
+          <div className="studio-lobby-avatar studio-lobby-avatar-self">
+            <div className="studio-lobby-avatar-video">
+              {localStream && (
+                <video
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ transform: mirrorOn ? 'scaleX(-1)' : 'none' }}
+                  ref={(el) => { if (el && el.srcObject !== localStream) el.srcObject = localStream; }}
+                />
+              )}
+            </div>
+            <span className="studio-lobby-avatar-name">{displayName || 'YOU'}</span>
+            <span className="studio-lobby-avatar-badge">Host</span>
+          </div>
+
+          {/* Remote participants */}
+          {participants.map((p) => (
+            <motion.div
+              key={p.peerId}
+              className="studio-lobby-avatar"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: 'spring' }}
+            >
+              <div className="studio-lobby-avatar-video">
+                {p.stream && (
+                  <video
+                    autoPlay
+                    playsInline
+                    muted
+                    ref={(el) => { if (el && el.srcObject !== p.stream) el.srcObject = p.stream; }}
+                  />
+                )}
+              </div>
+              <span className="studio-lobby-avatar-name">{p.name || 'Guest'}</span>
+            </motion.div>
+          ))}
+
+          {/* Empty invite slots */}
+          {Array.from({ length: Math.max(0, 3 - participants.length) }, (_, i) => (
+            <div key={`empty-${i}`} className="studio-lobby-avatar studio-lobby-avatar-empty">
+              <div className="studio-lobby-avatar-video studio-lobby-avatar-invite">
+                <span>+</span>
+              </div>
+              <span className="studio-lobby-avatar-name">Invite</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="studio-lobby-divider" />
+
+      <div className="studio-lobby-actions">
+        <motion.button
+          type="button"
+          className="studio-enter-btn"
+          onClick={onEnterStudio}
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.97 }}
+        >
+          <Sparkles size={18} /> Enter Studio
+        </motion.button>
+        <button type="button" className="studio-leave-btn" onClick={onLeave}>
+          Leave
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+export const StudioLobby = memo(StudioLobbyComponent);

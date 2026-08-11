@@ -14,6 +14,7 @@ import { PhotoResult } from './components/PhotoResult.jsx';
 import { StripEditor } from './components/StripEditor.jsx';
 import { MemoryLab } from './components/MemoryLab.jsx';
 import { Footer } from './components/Footer.jsx';
+import { StudioMode } from './components/Studio/StudioMode.jsx';
 
 export default function App() {
   const [mode, setMode] = useState(4);
@@ -196,6 +197,29 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  /* ─── Studio Mode state ─── */
+  const [isStudioOpen, setStudioOpen] = useState(false);
+
+  const openStudio = useCallback(() => {
+    setStudioOpen(true);
+  }, []);
+
+  const closeStudio = useCallback(() => {
+    setStudioOpen(false);
+  }, []);
+
+  const handleStudioCapture = useCallback((photos, studioShotCount) => {
+    /* Push group photos into the captured state and transition to strip editor */
+    const photoList = Array.isArray(photos) ? photos : [photos];
+    const count = studioShotCount || photoList.length;
+    setMode(count);
+    setCaptured(photoList);
+    setTimestamp(getFormattedTimestamp());
+    setStudioOpen(false);
+    setCurrentPage('editor');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   return (
     <main>
       <AmbientLayers />
@@ -206,6 +230,16 @@ export default function App() {
         currentPage={currentPage}
         capturedCount={captured.length}
         onGoToEditor={goToEditor}
+        onStudioOpen={openStudio}
+      />
+      <StudioMode
+        isOpen={isStudioOpen}
+        onClose={closeStudio}
+        onCaptureComplete={handleStudioCapture}
+        flashOn={flashOn}
+        setFlashOn={setFlashOn}
+        mirrorOn={mirrorOn}
+        setMirrorOn={setMirrorOn}
       />
       <audio
         ref={audioRef}

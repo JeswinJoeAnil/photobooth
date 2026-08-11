@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { MessageSquare, X } from 'lucide-react';
+import { MessageSquare, Sparkles, X } from 'lucide-react';
 
-export function MobileMenu({ isOpen, onClose, onFeedbackOpen, currentPage = 'capture', capturedCount = 0, onGoToEditor }) {
+export function MobileMenu({ isOpen, onClose, onFeedbackOpen, onStudioOpen, currentPage = 'capture', capturedCount = 0, onGoToEditor }) {
   const closeButtonRef = useRef(null);
   const links = currentPage === 'editor'
     ? [
@@ -78,6 +78,18 @@ export function MobileMenu({ isOpen, onClose, onFeedbackOpen, currentPage = 'cap
                   Edit strip
                 </motion.button>
               )}
+              <motion.button
+                type="button"
+                className="menu-feedback-btn menu-studio-btn"
+                onClick={() => { onClose(); onStudioOpen?.(); }}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.32 }}
+                whileHover={{ scale: 1.05, x: 5 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Sparkles size={18} /> STUDIO ✦
+              </motion.button>
               <motion.button
                 type="button"
                 className="menu-feedback-btn"
