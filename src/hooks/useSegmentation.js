@@ -143,14 +143,21 @@ export function useSegmentation(videoElement, enabled = true) {
         const smoothConf = prevConf * 0.35 + rawConf * 0.65;
         prevMask[i] = smoothConf;
 
+        const col = i % maskW;
+        const normalizedX = col / maskW;
+
+        /* Require higher subject confidence near outer horizontal edges to eliminate chairs, cushions & background clutter */
+        const lowThreshold = (normalizedX < 0.20 || normalizedX > 0.80) ? 0.68 : 0.48;
+        const highThreshold = 0.85;
+
         let a = 0;
-        if (smoothConf < 0.22) {
+        if (smoothConf < lowThreshold) {
           a = 0;
-        } else if (smoothConf > 0.78) {
+        } else if (smoothConf > highThreshold) {
           a = 1.0;
         } else {
           /* Smooth Hermite step (3t^2 - 2t^3) for soft anti-aliased edge */
-          const t = (smoothConf - 0.22) / 0.56;
+          const t = (smoothConf - lowThreshold) / (highThreshold - lowThreshold);
           a = t * t * (3 - 2 * t);
         }
 
@@ -223,13 +230,19 @@ export function useSegmentation(videoElement, enabled = true) {
       for (let i = 0; i < totalMaskPixels; i++) {
         const conf = maskData[i];
 
+        const col = i % maskW;
+        const normalizedX = col / maskW;
+
+        const lowThreshold = (normalizedX < 0.20 || normalizedX > 0.80) ? 0.68 : 0.48;
+        const highThreshold = 0.85;
+
         let a = 0;
-        if (conf < 0.20) {
+        if (conf < lowThreshold) {
           a = 0;
-        } else if (conf > 0.80) {
+        } else if (conf > highThreshold) {
           a = 1.0;
         } else {
-          const t = (conf - 0.20) / 0.60;
+          const t = (conf - lowThreshold) / (highThreshold - lowThreshold);
           a = t * t * (3 - 2 * t);
         }
 
