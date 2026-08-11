@@ -24,6 +24,9 @@ const PEER_CONFIG = {
   },
 };
 
+/* Hard cap on simultaneous remote participants (matches PARTICIPANT_LAYOUTS[4]) */
+const MAX_PARTICIPANTS = 4;
+
 export function useStudioRoom() {
   const [roomCode, setRoomCode] = useState(null);
   const [isHost, setIsHost] = useState(false);
@@ -146,14 +149,22 @@ export function useStudioRoom() {
 
       setConnectionState('waiting');
 
-      /* Listen for incoming connections */
+      /* Listen for incoming connections (reject when the room is full) */
       peer.on('call', (mediaConn) => {
+        if (connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
+          try { mediaConn.close(); } catch { /* already closed */ }
+          return;
+        }
+        /* Answer immediately and reserve a slot so the cap is enforced
+           before the remote stream arrives */
         mediaConn.answer(stream);
+        const entry = connectionsRef.current.get(mediaConn.peer) || {};
+        entry.mediaConn = mediaConn;
+        connectionsRef.current.set(mediaConn.peer, entry);
         mediaConn.on('stream', (remoteStream) => {
-          const entry = connectionsRef.current.get(mediaConn.peer) || {};
-          entry.mediaConn = mediaConn;
-          entry.stream = remoteStream;
-          connectionsRef.current.set(mediaConn.peer, entry);
+          const current = connectionsRef.current.get(mediaConn.peer) || {};
+          current.stream = remoteStream;
+          connectionsRef.current.set(mediaConn.peer, current);
           addParticipant(mediaConn.peer, remoteStream);
           setConnectionState('connected');
         });
@@ -166,6 +177,10 @@ export function useStudioRoom() {
       });
 
       peer.on('connection', (dataConn) => {
+        if (connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
+          try { dataConn.close(); } catch { /* already closed */ }
+          return;
+        }
         const entry = connectionsRef.current.get(dataConn.peer) || {};
         entry.dataConn = dataConn;
         connectionsRef.current.set(dataConn.peer, entry);
@@ -238,19 +253,25 @@ export function useStudioRoom() {
         mediaConn.on('close', () => {
           removeParticipant(hostPeerId);
           setConnectionState('error');
-          setErrorMessage('The host has ended the studio session.');
+          setErrorMessage('The studio session has ended or is full.');
         });
         setTimeout(() => reject(new Error('Studio not found or connection timed out')), 20000);
       });
 
       /* Listen for additional peers connecting (from host) */
       peer.on('call', (incomingCall) => {
+        if (connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
+          try { incomingCall.close(); } catch { /* already closed */ }
+          return;
+        }
         incomingCall.answer(stream);
+        const entry = connectionsRef.current.get(incomingCall.peer) || {};
+        entry.mediaConn = incomingCall;
+        connectionsRef.current.set(incomingCall.peer, entry);
         incomingCall.on('stream', (remoteStream) => {
-          const entry = connectionsRef.current.get(incomingCall.peer) || {};
-          entry.mediaConn = incomingCall;
-          entry.stream = remoteStream;
-          connectionsRef.current.set(incomingCall.peer, entry);
+          const current = connectionsRef.current.get(incomingCall.peer) || {};
+          current.stream = remoteStream;
+          connectionsRef.current.set(incomingCall.peer, current);
           addParticipant(incomingCall.peer, remoteStream);
         });
       });

@@ -316,29 +316,33 @@ function StudioRoomComponent({
     onCaptureComplete(capturedList, totalShots);
   }, [shooting, isHost, broadcast, flashOn, onCaptureComplete]);
 
-  /* Listen for synchronized events from host */
+  /* Listen for synchronized events — only accept control messages from the host */
   useEffect(() => {
-    if (isHost) return;
+    const hostId = `memorie-studio-${roomCode}`;
 
-    const unsubscribe = onData((data) => {
-      if (data?.type === 'BURST_START') {
+    const unsubscribe = onData((data, fromPeerId) => {
+      if (!data?.type) return;
+      /* Ignore any control message not originating from the host's peer id */
+      if (fromPeerId !== hostId) return;
+
+      if (data.type === 'BURST_START') {
         runSequentialCapture(data.totalShots, data.timerSec);
       }
-      if (data?.type === 'SHOT_COUNT_CHANGE') {
+      if (data.type === 'SHOT_COUNT_CHANGE') {
         setShotCount(data.shotCount);
       }
-      if (data?.type === 'BACKGROUND_CHANGE') {
+      if (data.type === 'BACKGROUND_CHANGE') {
         const bg = STUDIO_BACKGROUNDS.find((b) => b.id === data.backgroundId);
         if (bg) setBackground(bg);
       }
-      if (data?.type === 'FLASH_FIRE' && flashOn) {
+      if (data.type === 'FLASH_FIRE' && flashOn) {
         setFlashFire(true);
         setTimeout(() => setFlashFire(false), 480);
       }
     });
 
     return unsubscribe;
-  }, [isHost, onData, runSequentialCapture, flashOn]);
+  }, [roomCode, onData, runSequentialCapture, flashOn]);
 
   /* Host broadcasts background changes */
   const handleBackgroundChange = useCallback((bg) => {

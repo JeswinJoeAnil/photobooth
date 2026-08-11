@@ -23,7 +23,7 @@ async function loadSegmenter() {
       const { ImageSegmenter, FilesetResolver } = vision;
 
       const filesetResolver = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
       );
 
       const segmenter = await ImageSegmenter.createFromOptions(filesetResolver, {

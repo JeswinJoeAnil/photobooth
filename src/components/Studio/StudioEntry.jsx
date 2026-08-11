@@ -23,7 +23,7 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
   const handleJoin = useCallback(() => {
     const code = normalizeRoomCode(joinCode);
     if (!isValidRoomCode(code)) {
-      setJoinError('Enter a valid 5-character studio code.');
+      setJoinError('Enter a valid 6-character studio code.');
       return;
     }
     setJoinError('');
@@ -168,14 +168,14 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
                     id="studio-join-code"
                     type="text"
                     className="studio-code-input"
-                    placeholder="M7K2Q"
+                    placeholder="M7K2QX"
                     value={joinCode}
                     onChange={(e) => {
                       setJoinCode(normalizeRoomCode(e.target.value));
                       setJoinError('');
                     }}
                     onKeyDown={handleKeyDown}
-                    maxLength={5}
+                    maxLength={6}
                     autoComplete="off"
                     autoFocus
                   />
@@ -188,7 +188,7 @@ function StudioEntryComponent({ isOpen, onClose, onCreateRoom, onJoinRoom }) {
                   onClick={handleJoin}
                   whileHover={{ y: -2 }}
                   whileTap={{ scale: 0.97 }}
-                  disabled={joinCode.length < 5}
+                  disabled={joinCode.length < 6}
                 >
                   Join Studio
                 </motion.button>

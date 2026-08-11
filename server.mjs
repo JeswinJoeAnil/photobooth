@@ -16,23 +16,44 @@ const mime = {
 };
 
 createServer((request, response) => {
-  const url = new URL(request.url || '/', `http://${request.headers.host}`);
-  const requested = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
-  let filePath = join(root, requested === '/' ? 'index.html' : requested);
+  try {
+    let url;
+    try {
+      url = new URL(request.url || '/', `http://${request.headers.host}`);
+    } catch {
+      response.writeHead(400).end('Bad Request');
+      return;
+    }
 
-  if (!filePath.startsWith(root) || !existsSync(filePath)) {
-    filePath = join(root, 'index.html');
+    let requested;
+    try {
+      requested = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
+    } catch {
+      response.writeHead(400).end('Bad Request');
+      return;
+    }
+
+    let filePath = join(root, requested === '/' ? 'index.html' : requested);
+
+    if (!filePath.startsWith(root) || !existsSync(filePath)) {
+      filePath = join(root, 'index.html');
+    }
+
+    if (statSync(filePath).isDirectory()) {
+      filePath = join(filePath, 'index.html');
+    }
+
+    response.writeHead(200, {
+      'Content-Type': mime[extname(filePath)] || 'application/octet-stream',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'X-Frame-Options': 'DENY',
+    });
+    createReadStream(filePath).pipe(response);
+  } catch {
+    response.writeHead(500).end('Server Error');
   }
-
-  if (statSync(filePath).isDirectory()) {
-    filePath = join(filePath, 'index.html');
-  }
-
-  response.writeHead(200, {
-    'Content-Type': mime[extname(filePath)] || 'application/octet-stream',
-    'Cache-Control': 'no-store',
-  });
-  createReadStream(filePath).pipe(response);
 }).listen(port, '127.0.0.1', () => {
   console.log(`Memorie preview running at http://127.0.0.1:${port}/`);
 });

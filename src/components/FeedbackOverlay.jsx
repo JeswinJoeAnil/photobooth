@@ -5,6 +5,7 @@ import { MessageSquare } from 'lucide-react';
 export function FeedbackOverlay({ onClose, ownerEmail }) {
   const [status, setStatus] = useState('idle');
   const [msg, setMsg] = useState('');
+  const [hp, setHp] = useState('');
   const closeButtonRef = useRef(null);
 
   useEffect(() => {
@@ -18,7 +19,7 @@ export function FeedbackOverlay({ onClose, ownerEmail }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!msg.trim()) return;
+    if (!msg.trim() || hp) return; /* honeypot filled = bot */
 
     setStatus('sending');
 
@@ -85,6 +86,22 @@ export function FeedbackOverlay({ onClose, ownerEmail }) {
                 onChange={(e) => setMsg(e.target.value)}
                 disabled={status === 'sending'}
               />
+              {/* Honeypot — hidden from humans, catches bots (Formspree `_gotcha`) */}
+              <div
+                aria-hidden="true"
+                style={{ position: 'absolute', left: '-9999px', top: 'auto', width: 1, height: 1, overflow: 'hidden' }}
+              >
+                <label htmlFor="feedback-hp">Leave this field empty</label>
+                <input
+                  id="feedback-hp"
+                  type="text"
+                  name="_gotcha"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={hp}
+                  onChange={(e) => setHp(e.target.value)}
+                />
+              </div>
               {status === 'error' && (
                 <p className="form-status" role="alert">Something went wrong. Please try again.</p>
               )}
