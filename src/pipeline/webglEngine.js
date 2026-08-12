@@ -294,8 +294,8 @@ export class WebGLEngine {
 
   setVideoSource(videoElement) {
     this.video = videoElement;
-    this.frameWidth = videoElement.videoWidth || 1280;
-    this.frameHeight = videoElement.videoHeight || 720;
+    this.frameWidth = videoElement.videoWidth || videoElement.width || 1280;
+    this.frameHeight = videoElement.videoHeight || videoElement.height || 720;
 
     this.canvas.width = this.frameWidth;
     this.canvas.height = this.frameHeight;
@@ -440,10 +440,11 @@ export class WebGLEngine {
       this.settings.targetInferenceRes = newRes;
     }
 
-    if (this.video && this.video.readyState >= 2) {
+    const isVideoReady = this.video && (this.video.readyState === undefined || this.video.readyState >= 2);
+    if (isVideoReady) {
       const gl = this.gl;
-      const vW = this.video.videoWidth;
-      const vH = this.video.videoHeight;
+      const vW = this.video.videoWidth || this.video.width || 1280;
+      const vH = this.video.videoHeight || this.video.height || 720;
 
       if (vW > 0 && vH > 0 && (this.frameWidth !== vW || this.frameHeight !== vH)) {
         this.frameWidth = vW;

@@ -8,18 +8,16 @@ import {
   Flashlight,
   Grid2X2,
   Image as ImageIcon,
-  Layers,
   Palette,
   RefreshCcw,
-  Scissors,
   Sliders,
   Sparkles,
   Upload,
   Users,
-  Wand2,
 } from 'lucide-react';
-import { WebGLEngine } from '../../pipeline/webglEngine.js';
-import { STUDIO_BACKGROUNDS, PARTICIPANT_LAYOUTS } from '../../constants/studioAssets.js';
+import { StudioCompositor } from '../../pipeline/studioCompositor.js';
+import { segmentationPipeline } from '../../utils/segmentationPipeline.js';
+import { STUDIO_BACKGROUNDS } from '../../constants/studioAssets.js';
 
 const RESOLUTION_OPTIONS = [
   { id: '1080p', label: '1080p (Full HD)', desc: 'Highest photo detail & crisp resolution', width: 1920, height: 1080 },
@@ -28,11 +26,13 @@ const RESOLUTION_OPTIONS = [
 ];
 
 /**
- * StudioRoom — Ultra-high performance WebGL virtual photo studio.
+ * StudioRoom — Virtual photo studio room component.
  *
- * Uses GPU-accelerated WebGL2 shaders for joint bilateral upsampling,
- * temporal motion feedback, color decontamination (fringe removal around hair/body),
- * edge feathering, and customizable studio backgrounds.
+ * Manages:
+ * - UI toolbar controls (Flash, Mirror, Quality, Timer, Shots, Backgrounds).
+ * - Offscreen DOM video mounting for continuous WebRTC decoding.
+ * - Delegation of layer compositing to StudioCompositor.
+ * - High-precision HD photo capture on shutter trigger.
  */
 function StudioRoomComponent({
   isHost,
@@ -50,6 +50,7 @@ function StudioRoomComponent({
   setMirrorOn: propSetMirrorOn,
 }) {
   const [background, setBackground] = useState(STUDIO_BACKGROUNDS[0]);
+  const [customBgUrl, setCustomBgUrl] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [flashFire, setFlashFire] = useState(false);
   const [showBgPicker, setShowBgPicker] = useState(false);
@@ -70,11 +71,18 @@ function StudioRoomComponent({
   const setMirrorOn = propSetMirrorOn || setLocalMirrorOn;
 
   const compositorCanvasRef = useRef(null);
+  const compositorEngineRef = useRef(null);
   const localVideoRef = useRef(null);
-  const engineRef = useRef(null);
+  const remoteVideosRef = useRef(new Map());
   const fileInputRef = useRef(null);
   const controlsRef = useRef(null);
   const shutterBtnRef = useRef(null);
+  const animFrameRef = useRef(null);
+
+  /* Initialize MediaPipe Segmentation Pipeline */
+  useEffect(() => {
+    segmentationPipeline.init();
+  }, []);
 
   /* Auto-center the shutter button in the scrollable toolbar on mount/resize */
   useEffect(() => {
@@ -94,138 +102,53 @@ function StudioRoomComponent({
     };
   }, []);
 
-  /* WebGL Engine pipeline settings state */
-  const [pipelineSettings, setPipelineSettings] = useState({
-    mode: 'color', // 'image' | 'color' | 'blur' | 'transparent'
-    solidColor: STUDIO_BACKGROUNDS[0],
-    customImageUrl: '',
-    blurRadius: 14,
-    edgeFeather: 0.06,
-    colorDecontamination: 0.65,
-    temporalAlpha: 0.18,
-    autoQuality: true,
-    mirrorVideo: true,
-    showDevOverlay: false,
-  });
-
-  const [stats, setStats] = useState({
-    fps: 0,
-    inferenceMs: 0,
-    temporalFilterMs: 0,
-    compositeMs: 0,
-    totalFrameMs: 0,
-    currentInferenceRes: '256x144',
-    isGpuAccelerated: true,
-    adaptiveLevel: 'High (256x144)',
-  });
-
-  /* Sync mirrorOn prop into WebGL engine */
+  /* Initialize StudioCompositor Engine */
   useEffect(() => {
-    setPipelineSettings((prev) => {
-      const updated = { ...prev, mirrorVideo: mirrorOn };
-      if (engineRef.current) engineRef.current.updateSettings(updated);
-      return updated;
-    });
-  }, [mirrorOn]);
-
-  /* Set up local video element */
-  useEffect(() => {
-    if (!localStream) return;
-    if (!localVideoRef.current) {
-      const video = document.createElement('video');
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = true;
-      localVideoRef.current = video;
+    if (!compositorEngineRef.current) {
+      compositorEngineRef.current = new StudioCompositor(compositorCanvasRef.current);
+    } else {
+      compositorEngineRef.current.setCanvas(compositorCanvasRef.current);
     }
-    localVideoRef.current.srcObject = localStream;
-    localVideoRef.current.play().catch(() => {});
-  }, [localStream]);
+  }, []);
 
-  /* Initialize WebGL Engine on canvas */
+  /* Live Preview 60 FPS Compositing Loop */
   useEffect(() => {
-    const canvas = compositorCanvasRef.current;
-    const video = localVideoRef.current;
-    if (!canvas) return;
+    const activeBg = customBgUrl ? { solidColor: '#000', customImageUrl: customBgUrl } : background;
 
-    try {
-      if (!engineRef.current) {
-        engineRef.current = new WebGLEngine(
-          canvas,
-          {
-            ...pipelineSettings,
-            mode: 'color',
-            solidColor: background,
-          },
-          {
-            onStatsUpdate: (newStats) => setStats(newStats),
-            onError: (err) => console.warn('WebGLEngine Notice:', err),
-          }
-        );
+    const renderLoop = () => {
+      if (compositorEngineRef.current) {
+        compositorEngineRef.current.renderFrame({
+          background: activeBg,
+          localVideo: localVideoRef.current,
+          remoteVideosMap: remoteVideosRef.current,
+          participants,
+          mirrorOn,
+        });
       }
+      animFrameRef.current = requestAnimationFrame(renderLoop);
+    };
 
-      if (video && video.readyState >= 2) {
-        engineRef.current.setVideoSource(video);
-        engineRef.current.start();
-      } else if (video) {
-        const handleLoaded = () => {
-          if (engineRef.current) {
-            engineRef.current.setVideoSource(video);
-            engineRef.current.start();
-          }
-        };
-        video.addEventListener('loadeddata', handleLoaded);
-        return () => video.removeEventListener('loadeddata', handleLoaded);
-      }
-    } catch (err) {
-      console.error('Error initializing WebGL engine:', err);
-    }
+    renderLoop();
 
     return () => {
-      if (engineRef.current) {
-        engineRef.current.destroy();
-        engineRef.current = null;
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
       }
     };
-  }, [localStream]);
+  }, [background, customBgUrl, participants, mirrorOn]);
 
-  /* Remote video elements for multiplayer */
-  const remoteVideosRef = useRef(new Map());
+  /* Cleanup remote video references on disconnect */
   useEffect(() => {
-    participants.forEach((p) => {
-      if (!remoteVideosRef.current.has(p.peerId)) {
-        const video = document.createElement('video');
-        video.autoplay = true;
-        video.playsInline = true;
-        video.muted = true;
-        remoteVideosRef.current.set(p.peerId, video);
-      }
-      const video = remoteVideosRef.current.get(p.peerId);
-      if (video.srcObject !== p.stream) {
-        video.srcObject = p.stream;
-        video.play().catch(() => {});
-      }
-    });
-
     const activePeerIds = new Set(participants.map((p) => p.peerId));
     remoteVideosRef.current.forEach((video, peerId) => {
       if (!activePeerIds.has(peerId)) {
-        video.srcObject = null;
+        if (video) video.srcObject = null;
         remoteVideosRef.current.delete(peerId);
+        segmentationPipeline.removeParticipant(peerId);
       }
     });
   }, [participants]);
-
-  /* Helper to update WebGL settings */
-  const handleUpdatePipeline = (newSettings) => {
-    setPipelineSettings((prev) => {
-      const updated = { ...prev, ...newSettings };
-      if (engineRef.current) {
-        engineRef.current.updateSettings(updated);
-      }
-      return updated;
-    });
-  };
 
   const handleResolutionChange = useCallback(
     (opt) => {
@@ -248,9 +171,9 @@ function StudioRoomComponent({
   /* Host broadcasts background changes */
   const handleBackgroundChange = useCallback(
     (bg) => {
+      setCustomBgUrl(null);
       setBackground(bg);
       setShowBgPicker(false);
-      handleUpdatePipeline({ mode: 'color', solidColor: bg });
 
       if (isHost) {
         broadcast({ type: 'BACKGROUND_CHANGE', backgroundId: bg.id });
@@ -265,11 +188,11 @@ function StudioRoomComponent({
     if (!file) return;
 
     const url = URL.createObjectURL(file);
-    handleUpdatePipeline({ mode: 'image', customImageUrl: url });
+    setCustomBgUrl(url);
     setShowBgPicker(false);
   };
 
-  /* ─── Sequential Multi-Shot Capture Routine ─── */
+  /* ─── Sequential Multi-Shot High-Precision Capture Routine ─── */
   const runSequentialCapture = useCallback(
     async (totalShots = 4, timerSec = 3) => {
       if (shooting) return;
@@ -280,6 +203,7 @@ function StudioRoomComponent({
       }
 
       const capturedList = [];
+      const activeBg = customBgUrl ? { solidColor: '#000', customImageUrl: customBgUrl } : background;
 
       for (let shot = 1; shot <= totalShots; shot++) {
         setShotIndex(shot);
@@ -298,14 +222,18 @@ function StudioRoomComponent({
           if (isHost) broadcast({ type: 'FLASH_FIRE' });
         }
 
-        const canvas = compositorCanvasRef.current;
-        if (canvas) {
-          const captureCanvas = document.createElement('canvas');
-          captureCanvas.width = 1200;
-          captureCanvas.height = 900;
-          const ctx = captureCanvas.getContext('2d');
-          ctx.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
-          capturedList.push(captureCanvas.toDataURL('image/png'));
+        /* Execute High-Resolution Snapshot Capture Pass */
+        if (compositorEngineRef.current) {
+          const hdDataUrl = await compositorEngineRef.current.captureHD({
+            background: activeBg,
+            localVideo: localVideoRef.current,
+            remoteVideosMap: remoteVideosRef.current,
+            participants,
+            mirrorOn,
+          });
+          if (hdDataUrl) {
+            capturedList.push(hdDataUrl);
+          }
         }
 
         if (shot < totalShots) {
@@ -317,7 +245,7 @@ function StudioRoomComponent({
       setShotIndex(null);
       onCaptureComplete(capturedList, totalShots);
     },
-    [shooting, isHost, broadcast, flashOn, onCaptureComplete]
+    [shooting, isHost, broadcast, flashOn, onCaptureComplete, customBgUrl, background, participants, mirrorOn]
   );
 
   /* Host/Peer synchronized events */
@@ -337,8 +265,8 @@ function StudioRoomComponent({
       if (data.type === 'BACKGROUND_CHANGE') {
         const bg = STUDIO_BACKGROUNDS.find((b) => b.id === data.backgroundId);
         if (bg) {
+          setCustomBgUrl(null);
           setBackground(bg);
-          handleUpdatePipeline({ mode: 'color', solidColor: bg });
         }
       }
       if (data.type === 'FLASH_FIRE' && flashOn) {
@@ -359,6 +287,62 @@ function StudioRoomComponent({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
+      {/* Offscreen DOM video elements with valid dimensions to prevent browser stream throttling */}
+      <div
+        style={{
+          position: 'fixed',
+          top: '-9999px',
+          left: '-9999px',
+          width: '320px',
+          height: '240px',
+          opacity: 0.01,
+          pointerEvents: 'none',
+          overflow: 'hidden',
+          zIndex: -9999,
+        }}
+        aria-hidden="true"
+      >
+        {localStream && (
+          <video
+            ref={(el) => {
+              if (el) {
+                localVideoRef.current = el;
+                if (el.srcObject !== localStream) {
+                  el.srcObject = localStream;
+                }
+                if (el.paused) {
+                  el.play().catch(() => {});
+                }
+              }
+            }}
+            style={{ width: '320px', height: '240px' }}
+            autoPlay
+            playsInline
+            muted
+          />
+        )}
+        {participants.map((p) => (
+          <video
+            key={p.peerId}
+            ref={(el) => {
+              if (el) {
+                remoteVideosRef.current.set(p.peerId, el);
+                if (el.srcObject !== p.stream) {
+                  el.srcObject = p.stream;
+                }
+                if (el.paused) {
+                  el.play().catch(() => {});
+                }
+              }
+            }}
+            style={{ width: '320px', height: '240px' }}
+            autoPlay
+            playsInline
+            muted
+          />
+        ))}
+      </div>
+
       {/* Hidden file input for custom background image */}
       <input
         type="file"
@@ -394,7 +378,7 @@ function StudioRoomComponent({
         </motion.div>
       )}
 
-      {/* Main WebGL compositor viewport */}
+      {/* Main Layer Compositor Viewport */}
       <div className="studio-viewport">
         <canvas
           ref={compositorCanvasRef}
@@ -580,49 +564,20 @@ function StudioRoomComponent({
               </button>
             </div>
 
-            {/* Background Mode Switchers */}
-            <div className="studio-mode-tabs">
-              <button
-                type="button"
-                className={`studio-mode-tab ${pipelineSettings.mode === 'color' ? 'active' : ''}`}
-                onClick={() => handleUpdatePipeline({ mode: 'color' })}
-              >
-                <Palette size={13} /> Studio Colors
-              </button>
-              <button
-                type="button"
-                className={`studio-mode-tab ${pipelineSettings.mode === 'blur' ? 'active' : ''}`}
-                onClick={() => handleUpdatePipeline({ mode: 'blur' })}
-              >
-                <Wand2 size={13} /> Blur Background
-              </button>
-              <button
-                type="button"
-                className={`studio-mode-tab ${pipelineSettings.mode === 'transparent' ? 'active' : ''}`}
-                onClick={() => handleUpdatePipeline({ mode: 'transparent' })}
-              >
-                <Layers size={13} /> Transparent
-              </button>
-            </div>
-
             {/* Studio Preset Scenes Grid */}
             <div className="studio-bg-picker-grid">
               {STUDIO_BACKGROUNDS.map((bg) => (
                 <button
                   key={bg.id}
                   type="button"
-                  className={`studio-bg-option ${
-                    pipelineSettings.mode === 'color' && background.id === bg.id ? 'active' : ''
-                  }`}
+                  className={`studio-bg-option ${!customBgUrl && background.id === bg.id ? 'active' : ''}`}
                   onClick={() => handleBackgroundChange(bg)}
                   title={bg.name}
                 >
                   <div
                     className="studio-bg-swatch"
                     style={{
-                      background: `linear-gradient(135deg, ${bg.gradient[0]}, ${
-                        bg.accent || bg.gradient[bg.gradient.length - 1]
-                      })`,
+                      background: `linear-gradient(135deg, ${bg.gradient[0]}, ${bg.accent || bg.gradient[bg.gradient.length - 1]})`,
                     }}
                   />
                   <span>{bg.name}</span>

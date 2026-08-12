@@ -41,6 +41,8 @@ export function useStudioRoom() {
   const localStreamRef = useRef(null);
   const roomCodeRef = useRef(null);
   const dataHandlersRef = useRef([]);
+  const connectToPeerRef = useRef(null);
+  const isHostRef = useRef(false);
 
   /**
    * Registers a handler for data channel messages.
@@ -67,19 +69,54 @@ export function useStudioRoom() {
     });
   }, []);
 
+  const sendPeerList = useCallback((targetConn = null) => {
+    const peers = Array.from(connectionsRef.current.entries()).map(([peerId, entry]) => ({
+      peerId,
+      name: entry.name || 'Guest',
+    }));
+    const message = { type: 'PEER_LIST', peers };
+
+    if (targetConn) {
+      if (targetConn.open) {
+        try { targetConn.send(message); } catch { /* Connection may have closed */ }
+      }
+      return;
+    }
+
+    connectionsRef.current.forEach(({ dataConn }) => {
+      if (dataConn?.open) {
+        try { dataConn.send(message); } catch { /* Connection may have closed */ }
+      }
+    });
+  }, []);
+
   /* Internal: Handle incoming data from a peer */
   const handlePeerData = useCallback((data, fromPeerId) => {
     dataHandlersRef.current.forEach((handler) => handler(data, fromPeerId));
 
     /* Handle built-in messages */
     if (data?.type === 'IDENTITY') {
+      const entry = connectionsRef.current.get(fromPeerId);
+      if (entry) {
+        entry.name = data.name;
+        connectionsRef.current.set(fromPeerId, entry);
+      }
       setParticipants((prev) =>
         prev.map((p) =>
           p.peerId === fromPeerId ? { ...p, name: data.name } : p
         )
       );
+      if (isHostRef.current) {
+        sendPeerList();
+      }
     }
-  }, []);
+
+    if (data?.type === 'PEER_LIST' && Array.isArray(data.peers)) {
+      data.peers.forEach((peerInfo) => {
+        connectToPeerRef.current?.(peerInfo.peerId, peerInfo.name);
+      });
+    }
+  }, [sendPeerList]);
 
   /* Internal: Set up a data connection with a peer */
   const setupDataConnection = useCallback((dataConn, peerId) => {
@@ -91,22 +128,28 @@ export function useStudioRoom() {
       }
       /* Send our identity */
       dataConn.send({ type: 'IDENTITY', name: displayName || 'Guest' });
+      if (isHostRef.current) {
+        sendPeerList(dataConn);
+        sendPeerList();
+      }
     });
     dataConn.on('close', () => {
       /* Peer disconnected */
     });
-  }, [displayName, handlePeerData]);
+  }, [displayName, handlePeerData, sendPeerList]);
 
   /* Internal: Add a participant with their stream */
   const addParticipant = useCallback((peerId, stream, name = 'Guest') => {
     setParticipants((prev) => {
+      const entry = connectionsRef.current.get(peerId);
+      const resolvedName = entry?.name || name;
       const exists = prev.find((p) => p.peerId === peerId);
       if (exists) {
         return prev.map((p) =>
-          p.peerId === peerId ? { ...p, stream, name: name || p.name } : p
+          p.peerId === peerId ? { ...p, stream, name: resolvedName || p.name } : p
         );
       }
-      return [...prev, { peerId, stream, name, isHost: false }];
+      return [...prev, { peerId, stream, name: resolvedName, isHost: false }];
     });
   }, []);
 
@@ -121,6 +164,42 @@ export function useStudioRoom() {
     }
   }, []);
 
+  const connectToPeer = useCallback((targetPeerId, name = 'Guest') => {
+    const peer = peerRef.current;
+    const stream = localStreamRef.current;
+    if (!peer || !stream || !targetPeerId || targetPeerId === peer.id) return;
+    if (connectionsRef.current.has(targetPeerId)) return;
+
+    /* Avoid duplicate guest-to-guest calls: only one side initiates. */
+    if (peer.id > targetPeerId) return;
+
+    const mediaConn = peer.call(targetPeerId, stream);
+    if (!mediaConn) return;
+
+    const dataConn = peer.connect(targetPeerId, { reliable: true });
+    connectionsRef.current.set(targetPeerId, { mediaConn, dataConn, name });
+    setupDataConnection(dataConn, targetPeerId);
+
+    mediaConn.on('stream', (remoteStream) => {
+      const entry = connectionsRef.current.get(targetPeerId) || {};
+      entry.mediaConn = mediaConn;
+      entry.dataConn = dataConn;
+      entry.stream = remoteStream;
+      entry.name = name || entry.name;
+      connectionsRef.current.set(targetPeerId, entry);
+      addParticipant(targetPeerId, remoteStream, name);
+    });
+    mediaConn.on('close', () => removeParticipant(targetPeerId));
+  }, [addParticipant, removeParticipant, setupDataConnection]);
+
+  useEffect(() => {
+    connectToPeerRef.current = connectToPeer;
+  }, [connectToPeer]);
+
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
+
   /**
    * Creates a new studio room as host.
    */
@@ -131,6 +210,7 @@ export function useStudioRoom() {
     setRoomCode(code);
     roomCodeRef.current = code;
     setIsHost(true);
+    isHostRef.current = true;
     setDisplayName(name || 'Host');
     localStreamRef.current = stream;
     setLocalStream(stream);
@@ -151,7 +231,7 @@ export function useStudioRoom() {
 
       /* Listen for incoming connections (reject when the room is full) */
       peer.on('call', (mediaConn) => {
-        if (connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
+        if (!connectionsRef.current.has(mediaConn.peer) && connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
           try { mediaConn.close(); } catch { /* already closed */ }
           return;
         }
@@ -166,6 +246,7 @@ export function useStudioRoom() {
           current.stream = remoteStream;
           connectionsRef.current.set(mediaConn.peer, current);
           addParticipant(mediaConn.peer, remoteStream);
+          sendPeerList();
           setConnectionState('connected');
         });
         mediaConn.on('close', () => {
@@ -177,7 +258,7 @@ export function useStudioRoom() {
       });
 
       peer.on('connection', (dataConn) => {
-        if (connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
+        if (!connectionsRef.current.has(dataConn.peer) && connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
           try { dataConn.close(); } catch { /* already closed */ }
           return;
         }
@@ -212,6 +293,7 @@ export function useStudioRoom() {
     setRoomCode(code);
     roomCodeRef.current = code;
     setIsHost(false);
+    isHostRef.current = false;
     setDisplayName(name || 'Guest');
     localStreamRef.current = stream;
     setLocalStream(stream);
@@ -260,7 +342,7 @@ export function useStudioRoom() {
 
       /* Listen for additional peers connecting (from host) */
       peer.on('call', (incomingCall) => {
-        if (connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
+        if (!connectionsRef.current.has(incomingCall.peer) && connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
           try { incomingCall.close(); } catch { /* already closed */ }
           return;
         }
@@ -277,6 +359,9 @@ export function useStudioRoom() {
       });
 
       peer.on('connection', (inDataConn) => {
+        const entry = connectionsRef.current.get(inDataConn.peer) || {};
+        entry.dataConn = inDataConn;
+        connectionsRef.current.set(inDataConn.peer, entry);
         setupDataConnection(inDataConn, inDataConn.peer);
       });
 

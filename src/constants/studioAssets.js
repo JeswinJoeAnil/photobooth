@@ -85,22 +85,63 @@ export const STUDIO_BACKGROUNDS = [
 /**
  * Automatic participant composition layouts.
  * Positions are normalized (0–1) with (0,0) at top-left.
+ * Baseline floor positioning anchors y to the feet/bottom of participant cutouts.
  */
 export const PARTICIPANT_LAYOUTS = {
-  1: [{ x: 0.5, y: 0.55, scale: 1.0 }],
+  1: [{ x: 0.50, y: 0.52, scale: 1.00, zIndex: 1 }],
   2: [
-    { x: 0.35, y: 0.55, scale: 0.85 },
-    { x: 0.65, y: 0.55, scale: 0.85 },
+    { x: 0.35, y: 0.52, scale: 0.88, zIndex: 1 },
+    { x: 0.65, y: 0.52, scale: 0.88, zIndex: 2 },
   ],
   3: [
-    { x: 0.3, y: 0.50, scale: 0.75 },
-    { x: 0.7, y: 0.50, scale: 0.75 },
-    { x: 0.5, y: 0.62, scale: 0.8 },
+    { x: 0.28, y: 0.48, scale: 0.78, zIndex: 1 },
+    { x: 0.72, y: 0.48, scale: 0.78, zIndex: 2 },
+    { x: 0.50, y: 0.58, scale: 0.84, zIndex: 3 },
   ],
   4: [
-    { x: 0.28, y: 0.48, scale: 0.7 },
-    { x: 0.72, y: 0.48, scale: 0.7 },
-    { x: 0.38, y: 0.62, scale: 0.72 },
-    { x: 0.62, y: 0.62, scale: 0.72 },
+    { x: 0.26, y: 0.46, scale: 0.72, zIndex: 1 },
+    { x: 0.74, y: 0.46, scale: 0.72, zIndex: 2 },
+    { x: 0.38, y: 0.58, scale: 0.76, zIndex: 3 },
+    { x: 0.62, y: 0.58, scale: 0.76, zIndex: 4 },
   ],
 };
+
+/**
+ * Render Studio Background (Layer 0) on 2D context.
+ */
+export function drawStudioBackground(ctx, bg, w, h) {
+  if (!ctx) return;
+
+  const defaultGradient = ['#2d1b4e', '#1a0a2e', '#0d0520'];
+  const gradientColors = (bg && bg.gradient && bg.gradient.length > 0) ? bg.gradient : defaultGradient;
+
+  if (gradientColors) {
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    gradientColors.forEach((color, i) => {
+      grad.addColorStop(i / (gradientColors.length - 1), color);
+    });
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  if (bg && bg.ambientGlow) {
+    bg.ambientGlow.forEach((glow) => {
+      const gx = glow.x * w;
+      const gy = glow.y * h;
+      const gRad = ctx.createRadialGradient(gx, gy, 0, gx, gy, (glow.radius / 800) * w);
+      gRad.addColorStop(0, glow.color);
+      gRad.addColorStop(1, 'transparent');
+      ctx.fillStyle = gRad;
+      ctx.fillRect(0, 0, w, h);
+    });
+  }
+
+  if (bg && bg.floorColor) {
+    const floorGrad = ctx.createLinearGradient(0, h * 0.65, 0, h);
+    floorGrad.addColorStop(0, 'transparent');
+    floorGrad.addColorStop(1, bg.floorColor);
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(0, 0, w, h);
+  }
+}
+
