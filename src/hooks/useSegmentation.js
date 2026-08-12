@@ -127,6 +127,7 @@ export function useSegmentation(videoElement, enabled = true) {
       maskCanvas.width = maskW;
       maskCanvas.height = maskH;
       const maskCtx = maskCanvas.getContext('2d');
+      if (!maskCtx) return null;
 
       const maskImgData = maskCtx.createImageData(maskW, maskH);
       const maskPixels = maskImgData.data;
@@ -174,6 +175,7 @@ export function useSegmentation(videoElement, enabled = true) {
       outCanvas.width = w;
       outCanvas.height = h;
       const outCtx = outCanvas.getContext('2d');
+      if (!outCtx) return null;
 
       /* Draw raw video frame */
       outCtx.save();
@@ -223,6 +225,7 @@ export function useSegmentation(videoElement, enabled = true) {
       maskCanvas.width = maskW;
       maskCanvas.height = maskH;
       const maskCtx = maskCanvas.getContext('2d');
+      if (!maskCtx) return null;
 
       const maskImgData = maskCtx.createImageData(maskW, maskH);
       const maskPixels = maskImgData.data;
@@ -259,6 +262,7 @@ export function useSegmentation(videoElement, enabled = true) {
       hqCanvas.width = w;
       hqCanvas.height = h;
       const hqCtx = hqCanvas.getContext('2d');
+      if (!hqCtx) return null;
 
       hqCtx.save();
       hqCtx.drawImage(video, 0, 0, w, h);
