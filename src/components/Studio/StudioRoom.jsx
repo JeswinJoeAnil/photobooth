@@ -73,6 +73,26 @@ function StudioRoomComponent({
   const localVideoRef = useRef(null);
   const engineRef = useRef(null);
   const fileInputRef = useRef(null);
+  const controlsRef = useRef(null);
+  const shutterBtnRef = useRef(null);
+
+  /* Auto-center the shutter button in the scrollable toolbar on mount/resize */
+  useEffect(() => {
+    const centerShutter = () => {
+      if (controlsRef.current && shutterBtnRef.current) {
+        const container = controlsRef.current;
+        const btn = shutterBtnRef.current;
+        const scrollTarget = btn.offsetLeft + btn.offsetWidth / 2 - container.clientWidth / 2;
+        container.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
+      }
+    };
+    const timerId = setTimeout(centerShutter, 200);
+    window.addEventListener('resize', centerShutter);
+    return () => {
+      clearTimeout(timerId);
+      window.removeEventListener('resize', centerShutter);
+    };
+  }, []);
 
   /* WebGL Engine pipeline settings state */
   const [pipelineSettings, setPipelineSettings] = useState({
@@ -420,7 +440,7 @@ function StudioRoomComponent({
       </div>
 
       {/* Main Studio Toolbar */}
-      <div className="studio-controls">
+      <div className="studio-controls" ref={controlsRef}>
         {/* Flash Toggle */}
         <motion.button
           type="button"
@@ -460,50 +480,68 @@ function StudioRoomComponent({
           <Sliders size={16} /> Quality <span>{selectedResolution}</span>
         </motion.button>
 
-        {/* Timer Button (Host controlled) */}
-        {isHost && (
+        {/* CENTER: Camera Shutter Button (Host) or Guest Hint */}
+        {isHost ? (
           <motion.button
+            ref={shutterBtnRef}
             type="button"
-            className={`studio-bg-btn studio-opt-btn ${timer > 0 ? 'opt-active' : ''}`}
-            onClick={() => {
-              if (shooting) return;
-              const options = [0, 2, 3, 5, 10];
-              const next = options[(options.indexOf(timer) + 1) % options.length];
-              setTimer(next);
-            }}
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.96 }}
-            disabled={shooting}
-            aria-pressed={timer > 0}
+            className="studio-shutter-btn"
+            onClick={() => runSequentialCapture(shotCount, timer)}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            disabled={shooting || countdown !== null}
+            aria-label="Take Photo"
           >
-            <BatteryMedium size={16} /> Timer <span>{timer === 0 ? 'off' : `${timer}s`}</span>
+            <Camera size={24} />
           </motion.button>
+        ) : (
+          <div className="studio-guest-hint" ref={shutterBtnRef}>
+            <Sparkles size={14} />
+            <span>The host will take the photo</span>
+          </div>
         )}
 
-        {/* Shots Selection Button (Host controlled) */}
-        {isHost && (
-          <motion.button
-            type="button"
-            className="studio-bg-btn studio-opt-btn opt-active"
-            onClick={() => {
-              if (shooting) return;
-              const options = [1, 2, 3, 4, 6];
-              const next = options[(options.indexOf(shotCount) + 1) % options.length];
-              setShotCount(next);
-              broadcast({ type: 'SHOT_COUNT_CHANGE', shotCount: next });
-            }}
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.96 }}
-            disabled={shooting}
-            aria-label="Select Shot Count"
-          >
-            <Grid2X2 size={16} /> Shots <span>{shotCount}</span>
-          </motion.button>
-        )}
-
-        {/* Scene Picker Toggle */}
+        {/* Right Options (Host controlled) */}
         {isHost && (
           <>
+            {/* Timer Button */}
+            <motion.button
+              type="button"
+              className={`studio-bg-btn studio-opt-btn ${timer > 0 ? 'opt-active' : ''}`}
+              onClick={() => {
+                if (shooting) return;
+                const options = [0, 2, 3, 5, 10];
+                const next = options[(options.indexOf(timer) + 1) % options.length];
+                setTimer(next);
+              }}
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.96 }}
+              disabled={shooting}
+              aria-pressed={timer > 0}
+            >
+              <BatteryMedium size={16} /> Timer <span>{timer === 0 ? 'off' : `${timer}s`}</span>
+            </motion.button>
+
+            {/* Shots Selection Button */}
+            <motion.button
+              type="button"
+              className="studio-bg-btn studio-opt-btn opt-active"
+              onClick={() => {
+                if (shooting) return;
+                const options = [1, 2, 3, 4, 6];
+                const next = options[(options.indexOf(shotCount) + 1) % options.length];
+                setShotCount(next);
+                broadcast({ type: 'SHOT_COUNT_CHANGE', shotCount: next });
+              }}
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.96 }}
+              disabled={shooting}
+              aria-label="Select Shot Count"
+            >
+              <Grid2X2 size={16} /> Shots <span>{shotCount}</span>
+            </motion.button>
+
+            {/* Scene Picker Toggle */}
             <motion.button
               type="button"
               className={`studio-bg-btn ${showBgPicker ? 'opt-active' : ''}`}
@@ -517,25 +555,7 @@ function StudioRoomComponent({
             >
               <ImageIcon size={16} /> Background
             </motion.button>
-
-            <motion.button
-              type="button"
-              className="studio-shutter-btn"
-              onClick={() => runSequentialCapture(shotCount, timer)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              disabled={shooting || countdown !== null}
-            >
-              <Camera size={24} />
-            </motion.button>
           </>
-        )}
-
-        {!isHost && (
-          <div className="studio-guest-hint">
-            <Sparkles size={14} />
-            <span>The host will take the photo</span>
-          </div>
         )}
       </div>
 
