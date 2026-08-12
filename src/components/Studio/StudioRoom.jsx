@@ -1,15 +1,38 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BatteryMedium, Camera, Flashlight, Grid2X2, Image, RefreshCcw, Sparkles, Users } from 'lucide-react';
-import { useSegmentation } from '../../hooks/useSegmentation.js';
+import {
+  ArrowLeft,
+  BatteryMedium,
+  Camera,
+  Check,
+  Flashlight,
+  Grid2X2,
+  Image as ImageIcon,
+  Layers,
+  Palette,
+  RefreshCcw,
+  Scissors,
+  Sliders,
+  Sparkles,
+  Upload,
+  Users,
+  Wand2,
+} from 'lucide-react';
+import { WebGLEngine } from '../../pipeline/webglEngine.js';
 import { STUDIO_BACKGROUNDS, PARTICIPANT_LAYOUTS } from '../../constants/studioAssets.js';
 
+const RESOLUTION_OPTIONS = [
+  { id: '1080p', label: '1080p (Full HD)', desc: 'Highest photo detail & crisp resolution', width: 1920, height: 1080 },
+  { id: '720p', label: '720p (HD)', desc: 'Balanced sharpness & smooth motion', width: 1280, height: 720 },
+  { id: '480p', label: '480p (SD)', desc: 'Fastest performance & low latency', width: 854, height: 480 },
+];
+
 /**
- * StudioRoom — The main multiplayer photo studio experience.
+ * StudioRoom — Ultra-high performance WebGL virtual photo studio.
  *
- * Composites segmented participant video onto a shared virtual background,
- * handles synchronized multi-shot countdown/capture, and outputs group photos
- * for the existing Memorie editor pipeline.
+ * Uses GPU-accelerated WebGL2 shaders for joint bilateral upsampling,
+ * temporal motion feedback, color decontamination (fringe removal around hair/body),
+ * edge feathering, and customizable studio backgrounds.
  */
 function StudioRoomComponent({
   isHost,
@@ -30,7 +53,8 @@ function StudioRoomComponent({
   const [countdown, setCountdown] = useState(null);
   const [flashFire, setFlashFire] = useState(false);
   const [showBgPicker, setShowBgPicker] = useState(false);
-  const [segStatus, setSegStatus] = useState('loading');
+  const [showQualityControls, setShowQualityControls] = useState(false);
+  const [selectedResolution, setSelectedResolution] = useState('1080p');
   const [timer, setTimer] = useState(3);
   const [shotCount, setShotCount] = useState(4);
   const [shooting, setShooting] = useState(false);
@@ -47,9 +71,44 @@ function StudioRoomComponent({
 
   const compositorCanvasRef = useRef(null);
   const localVideoRef = useRef(null);
-  const rafRef = useRef(null);
+  const engineRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  /* Set up local video element (hidden, used for segmentation input) */
+  /* WebGL Engine pipeline settings state */
+  const [pipelineSettings, setPipelineSettings] = useState({
+    mode: 'color', // 'image' | 'color' | 'blur' | 'transparent'
+    solidColor: STUDIO_BACKGROUNDS[0],
+    customImageUrl: '',
+    blurRadius: 14,
+    edgeFeather: 0.06,
+    colorDecontamination: 0.65,
+    temporalAlpha: 0.18,
+    autoQuality: true,
+    mirrorVideo: true,
+    showDevOverlay: false,
+  });
+
+  const [stats, setStats] = useState({
+    fps: 0,
+    inferenceMs: 0,
+    temporalFilterMs: 0,
+    compositeMs: 0,
+    totalFrameMs: 0,
+    currentInferenceRes: '256x144',
+    isGpuAccelerated: true,
+    adaptiveLevel: 'High (256x144)',
+  });
+
+  /* Sync mirrorOn prop into WebGL engine */
+  useEffect(() => {
+    setPipelineSettings((prev) => {
+      const updated = { ...prev, mirrorVideo: mirrorOn };
+      if (engineRef.current) engineRef.current.updateSettings(updated);
+      return updated;
+    });
+  }, [mirrorOn]);
+
+  /* Set up local video element */
   useEffect(() => {
     if (!localStream) return;
     if (!localVideoRef.current) {
@@ -63,19 +122,55 @@ function StudioRoomComponent({
     localVideoRef.current.play().catch(() => {});
   }, [localStream]);
 
-  /* Segmentation */
-  const { ready: segReady, loading: segLoading, error: segError, segmentFrame } =
-    useSegmentation(localVideoRef.current, !!localStream);
-
+  /* Initialize WebGL Engine on canvas */
   useEffect(() => {
-    if (segLoading) setSegStatus('loading');
-    else if (segError) setSegStatus('unavailable');
-    else if (segReady) setSegStatus('ready');
-  }, [segReady, segLoading, segError]);
+    const canvas = compositorCanvasRef.current;
+    const video = localVideoRef.current;
+    if (!canvas) return;
 
-  /* Create participant video elements for remote streams */
+    try {
+      if (!engineRef.current) {
+        engineRef.current = new WebGLEngine(
+          canvas,
+          {
+            ...pipelineSettings,
+            mode: 'color',
+            solidColor: background,
+          },
+          {
+            onStatsUpdate: (newStats) => setStats(newStats),
+            onError: (err) => console.warn('WebGLEngine Notice:', err),
+          }
+        );
+      }
+
+      if (video && video.readyState >= 2) {
+        engineRef.current.setVideoSource(video);
+        engineRef.current.start();
+      } else if (video) {
+        const handleLoaded = () => {
+          if (engineRef.current) {
+            engineRef.current.setVideoSource(video);
+            engineRef.current.start();
+          }
+        };
+        video.addEventListener('loadeddata', handleLoaded);
+        return () => video.removeEventListener('loadeddata', handleLoaded);
+      }
+    } catch (err) {
+      console.error('Error initializing WebGL engine:', err);
+    }
+
+    return () => {
+      if (engineRef.current) {
+        engineRef.current.destroy();
+        engineRef.current = null;
+      }
+    };
+  }, [localStream]);
+
+  /* Remote video elements for multiplayer */
   const remoteVideosRef = useRef(new Map());
-
   useEffect(() => {
     participants.forEach((p) => {
       if (!remoteVideosRef.current.has(p.peerId)) {
@@ -92,7 +187,6 @@ function StudioRoomComponent({
       }
     });
 
-    /* Clean up videos for departed participants */
     const activePeerIds = new Set(participants.map((p) => p.peerId));
     remoteVideosRef.current.forEach((video, peerId) => {
       if (!activePeerIds.has(peerId)) {
@@ -102,227 +196,116 @@ function StudioRoomComponent({
     });
   }, [participants]);
 
-  const bgCanvasRef = useRef(null);
-  const cachedBgKeyRef = useRef('');
-
-  /* Cache background gradient offscreen so it isn't recreated every frame */
-  const renderCachedBackground = useCallback((w, h, bg) => {
-    const bgKey = `${bg.id}_${w}_${h}`;
-    if (!bgCanvasRef.current) {
-      bgCanvasRef.current = document.createElement('canvas');
-    }
-    const bgCanvas = bgCanvasRef.current;
-    if (cachedBgKeyRef.current === bgKey && bgCanvas.width === w && bgCanvas.height === h) {
-      return bgCanvas;
-    }
-
-    bgCanvas.width = w;
-    bgCanvas.height = h;
-    const bgCtx = bgCanvas.getContext('2d');
-
-    /* Draw background gradient */
-    const grad = bgCtx.createLinearGradient(0, 0, 0, h);
-    bg.gradient.forEach((color, i) => {
-      grad.addColorStop(i / (bg.gradient.length - 1), color);
-    });
-    bgCtx.fillStyle = grad;
-    bgCtx.fillRect(0, 0, w, h);
-
-    /* Draw ambient glow effects */
-    if (bg.ambientGlow) {
-      bg.ambientGlow.forEach((glow) => {
-        const gx = glow.x * w;
-        const gy = glow.y * h;
-        const gRad = bgCtx.createRadialGradient(gx, gy, 0, gx, gy, glow.radius);
-        gRad.addColorStop(0, glow.color);
-        gRad.addColorStop(1, 'transparent');
-        bgCtx.fillStyle = gRad;
-        bgCtx.fillRect(0, 0, w, h);
-      });
-    }
-
-    /* Draw floor reflection */
-    if (bg.floorColor) {
-      const floorGrad = bgCtx.createLinearGradient(0, h * 0.7, 0, h);
-      floorGrad.addColorStop(0, 'transparent');
-      floorGrad.addColorStop(1, bg.floorColor);
-      bgCtx.fillStyle = floorGrad;
-      bgCtx.fillRect(0, 0, w, h);
-    }
-
-    cachedBgKeyRef.current = bgKey;
-    return bgCanvas;
-  }, []);
-
-  /* ─── Compositor: Live rendering loop ─── */
-  const drawComposite = useCallback(() => {
-    const canvas = compositorCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const w = canvas.width;
-    const h = canvas.height;
-
-    /* Draw cached background */
-    const bgCanvas = renderCachedBackground(w, h, background);
-    ctx.drawImage(bgCanvas, 0, 0);
-
-    /* Determine participant count and layout */
-    const totalParticipants = 1 + participants.length;
-    const layout = PARTICIPANT_LAYOUTS[Math.min(totalParticipants, 4)] || PARTICIPANT_LAYOUTS[4];
-
-    /* Draw each participant */
-    const allParticipants = [
-      { video: localVideoRef.current, isLocal: true, name: displayName },
-      ...participants.map((p) => ({
-        video: remoteVideosRef.current.get(p.peerId),
-        isLocal: false,
-        name: p.name,
-      })),
-    ].slice(0, 4);
-
-    allParticipants.forEach((participant, index) => {
-      const pos = layout[index];
-      if (!pos || !participant.video || participant.video.readyState < 2) return;
-
-      const video = participant.video;
-      const vw = video.videoWidth || 640;
-      const vh = video.videoHeight || 480;
-
-      /* Calculate destination dimensions — full-body floor-anchored cutout */
-      const baseHeight = h * 0.78 * pos.scale;
-      const aspectRatio = vw / vh;
-      const destW = baseHeight * aspectRatio;
-      const destH = baseHeight;
-      const destX = pos.x * w - destW / 2;
-      /* Anchor feet to the studio floor line (88% down the canvas) */
-      const floorY = h * 0.88;
-      const destY = floorY - destH;
-
-      ctx.save();
-
-      /* Mirror local participant if mirrorOn is enabled */
-      if (participant.isLocal && mirrorOn) {
-        ctx.translate(pos.x * w, 0);
-        ctx.scale(-1, 1);
-        ctx.translate(-pos.x * w, 0);
+  /* Helper to update WebGL settings */
+  const handleUpdatePipeline = (newSettings) => {
+    setPipelineSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      if (engineRef.current) {
+        engineRef.current.updateSettings(updated);
       }
+      return updated;
+    });
+  };
 
-      /* Apply background removal for local and remote participants */
-      const segCanvas = segReady ? segmentFrame(video) : null;
-      if (segCanvas) {
-        ctx.drawImage(segCanvas, destX, destY, destW, destH);
-      } else {
-        /* Fallback: draw video frame with soft rounded corner clip */
-        ctx.save();
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(destX, destY, destW, destH, 16);
-        } else {
-          ctx.rect(destX, destY, destW, destH);
+  const handleResolutionChange = useCallback(
+    (opt) => {
+      setSelectedResolution(opt.id);
+      if (localStream) {
+        const videoTrack = localStream.getVideoTracks()?.[0];
+        if (videoTrack && videoTrack.applyConstraints) {
+          videoTrack
+            .applyConstraints({
+              width: { ideal: opt.width },
+              height: { ideal: opt.height },
+            })
+            .catch((err) => console.warn('Camera resolution notice:', err));
         }
-        ctx.clip();
-        ctx.drawImage(video, destX, destY, destW, destH);
-        ctx.restore();
       }
+    },
+    [localStream]
+  );
 
-      ctx.restore();
+  /* Host broadcasts background changes */
+  const handleBackgroundChange = useCallback(
+    (bg) => {
+      setBackground(bg);
+      setShowBgPicker(false);
+      handleUpdatePipeline({ mode: 'color', solidColor: bg });
 
-      /* Draw name tag below participant */
-      ctx.save();
-      ctx.font = '600 13px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-      ctx.fillText(
-        (participant.name || (participant.isLocal ? 'YOU' : 'Guest')).toUpperCase(),
-        pos.x * w,
-        Math.min(h - 14, destY + destH + 18)
-      );
-      ctx.restore();
-    });
-
-    /* Draw branding watermark */
-    ctx.save();
-    ctx.font = '600 12px Inter, sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.textAlign = 'center';
-    ctx.fillText('MEMORIE STUDIO', w / 2, h - 16);
-    ctx.restore();
-
-    rafRef.current = requestAnimationFrame(drawComposite);
-  }, [background, participants, displayName, segReady, segmentFrame, mirrorOn, renderCachedBackground]);
-
-  /* Start/stop compositor loop */
-  useEffect(() => {
-    rafRef.current = requestAnimationFrame(drawComposite);
-    return () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+      if (isHost) {
+        broadcast({ type: 'BACKGROUND_CHANGE', backgroundId: bg.id });
       }
-    };
-  }, [drawComposite]);
+    },
+    [isHost, broadcast]
+  );
+
+  /* Custom Image Upload */
+  const handleCustomImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const url = URL.createObjectURL(file);
+    handleUpdatePipeline({ mode: 'image', customImageUrl: url });
+    setShowBgPicker(false);
+  };
 
   /* ─── Sequential Multi-Shot Capture Routine ─── */
-  const runSequentialCapture = useCallback(async (totalShots = 4, timerSec = 3) => {
-    if (shooting) return;
-    setShooting(true);
+  const runSequentialCapture = useCallback(
+    async (totalShots = 4, timerSec = 3) => {
+      if (shooting) return;
+      setShooting(true);
 
-    if (isHost) {
-      broadcast({ type: 'BURST_START', totalShots, timerSec });
-    }
+      if (isHost) {
+        broadcast({ type: 'BURST_START', totalShots, timerSec });
+      }
 
-    const capturedList = [];
+      const capturedList = [];
 
-    for (let shot = 1; shot <= totalShots; shot++) {
-      setShotIndex(shot);
+      for (let shot = 1; shot <= totalShots; shot++) {
+        setShotIndex(shot);
 
-      /* Run countdown */
-      if (timerSec > 0) {
-        for (let sec = timerSec; sec > 0; sec--) {
-          setCountdown(sec);
-          await new Promise((r) => setTimeout(r, 1000));
+        if (timerSec > 0) {
+          for (let sec = timerSec; sec > 0; sec--) {
+            setCountdown(sec);
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          setCountdown(null);
         }
-        setCountdown(null);
+
+        if (flashOn) {
+          setFlashFire(true);
+          setTimeout(() => setFlashFire(false), 480);
+          if (isHost) broadcast({ type: 'FLASH_FIRE' });
+        }
+
+        const canvas = compositorCanvasRef.current;
+        if (canvas) {
+          const captureCanvas = document.createElement('canvas');
+          captureCanvas.width = 1200;
+          captureCanvas.height = 900;
+          const ctx = captureCanvas.getContext('2d');
+          ctx.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
+          capturedList.push(captureCanvas.toDataURL('image/png'));
+        }
+
+        if (shot < totalShots) {
+          await new Promise((r) => setTimeout(r, 1600));
+        }
       }
 
-      /* Flash effect */
-      if (flashOn) {
-        setFlashFire(true);
-        setTimeout(() => setFlashFire(false), 480);
-        if (isHost) broadcast({ type: 'FLASH_FIRE' });
-      }
+      setShooting(false);
+      setShotIndex(null);
+      onCaptureComplete(capturedList, totalShots);
+    },
+    [shooting, isHost, broadcast, flashOn, onCaptureComplete]
+  );
 
-      /* Capture current compositor frame */
-      const canvas = compositorCanvasRef.current;
-      if (canvas) {
-        const captureCanvas = document.createElement('canvas');
-        captureCanvas.width = 1200;
-        captureCanvas.height = 900;
-        const ctx = captureCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
-        capturedList.push(captureCanvas.toDataURL('image/png'));
-      }
-
-      /* Pause between shots so friends can pose for the next frame */
-      if (shot < totalShots) {
-        await new Promise((r) => setTimeout(r, 1600));
-      }
-    }
-
-    setShooting(false);
-    setShotIndex(null);
-    onCaptureComplete(capturedList, totalShots);
-  }, [shooting, isHost, broadcast, flashOn, onCaptureComplete]);
-
-  /* Listen for synchronized events — only accept control messages from the host */
+  /* Host/Peer synchronized events */
   useEffect(() => {
     const hostId = `memorie-studio-${roomCode}`;
 
     const unsubscribe = onData((data, fromPeerId) => {
       if (!data?.type) return;
-      /* Ignore any control message not originating from the host's peer id */
       if (fromPeerId !== hostId) return;
 
       if (data.type === 'BURST_START') {
@@ -333,7 +316,10 @@ function StudioRoomComponent({
       }
       if (data.type === 'BACKGROUND_CHANGE') {
         const bg = STUDIO_BACKGROUNDS.find((b) => b.id === data.backgroundId);
-        if (bg) setBackground(bg);
+        if (bg) {
+          setBackground(bg);
+          handleUpdatePipeline({ mode: 'color', solidColor: bg });
+        }
       }
       if (data.type === 'FLASH_FIRE' && flashOn) {
         setFlashFire(true);
@@ -344,22 +330,6 @@ function StudioRoomComponent({
     return unsubscribe;
   }, [roomCode, onData, runSequentialCapture, flashOn]);
 
-  /* Host broadcasts background changes */
-  const handleBackgroundChange = useCallback((bg) => {
-    setBackground(bg);
-    setShowBgPicker(false);
-    if (isHost) {
-      broadcast({ type: 'BACKGROUND_CHANGE', backgroundId: bg.id });
-    }
-  }, [isHost, broadcast]);
-
-  /* Cleanup */
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
   const totalParticipants = 1 + participants.length;
 
   return (
@@ -369,6 +339,16 @@ function StudioRoomComponent({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
+      {/* Hidden file input for custom background image */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        className="hidden"
+        style={{ display: 'none' }}
+        onChange={handleCustomImageUpload}
+      />
+
       {/* Top bar */}
       <div className="studio-room-topbar">
         <button type="button" className="studio-room-back" onClick={onLeave} disabled={shooting}>
@@ -383,22 +363,6 @@ function StudioRoomComponent({
         </div>
       </div>
 
-      {/* Segmentation status */}
-      {segStatus === 'loading' && (
-        <motion.div
-          className="studio-seg-status"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-        >
-          <Sparkles size={14} /> Preparing your camera...
-        </motion.div>
-      )}
-      {segStatus === 'unavailable' && (
-        <div className="studio-seg-status studio-seg-unavailable">
-          Background removal isn't available on this device. Your original background will be shown.
-        </div>
-      )}
-
       {/* Live Shooting Progress Badge */}
       {shooting && shotIndex && (
         <motion.div
@@ -410,13 +374,13 @@ function StudioRoomComponent({
         </motion.div>
       )}
 
-      {/* Main compositor viewport */}
+      {/* Main WebGL compositor viewport */}
       <div className="studio-viewport">
         <canvas
           ref={compositorCanvasRef}
           className="studio-compositor-canvas"
-          width={800}
-          height={600}
+          width={1280}
+          height={720}
         />
 
         {/* Framing guide overlay */}
@@ -441,7 +405,7 @@ function StudioRoomComponent({
           )}
         </AnimatePresence>
 
-        {/* Flash */}
+        {/* Flash overlay */}
         <AnimatePresence>
           {flashFire && (
             <motion.div
@@ -455,9 +419,9 @@ function StudioRoomComponent({
         </AnimatePresence>
       </div>
 
-      {/* Controls */}
+      {/* Main Studio Toolbar */}
       <div className="studio-controls">
-        {/* Flash Toggle Button */}
+        {/* Flash Toggle */}
         <motion.button
           type="button"
           className={`studio-bg-btn studio-opt-btn ${flashOn ? 'opt-active' : ''}`}
@@ -469,7 +433,7 @@ function StudioRoomComponent({
           <Flashlight size={16} /> Flash <span>{flashOn ? 'on' : 'off'}</span>
         </motion.button>
 
-        {/* Mirror Toggle Button */}
+        {/* Mirror Toggle */}
         <motion.button
           type="button"
           className={`studio-bg-btn studio-opt-btn ${mirrorOn ? 'opt-active' : ''}`}
@@ -479,6 +443,21 @@ function StudioRoomComponent({
           aria-pressed={mirrorOn}
         >
           <RefreshCcw size={16} /> Mirror <span>{mirrorOn ? 'on' : 'off'}</span>
+        </motion.button>
+
+        {/* Quality / Resolution Selection Toggle */}
+        <motion.button
+          type="button"
+          className={`studio-bg-btn studio-opt-btn ${showQualityControls ? 'opt-active' : ''}`}
+          onClick={() => {
+            setShowQualityControls(!showQualityControls);
+            setShowBgPicker(false);
+          }}
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.96 }}
+          title="Select Camera Resolution"
+        >
+          <Sliders size={16} /> Quality <span>{selectedResolution}</span>
         </motion.button>
 
         {/* Timer Button (Host controlled) */}
@@ -522,17 +501,21 @@ function StudioRoomComponent({
           </motion.button>
         )}
 
+        {/* Scene Picker Toggle */}
         {isHost && (
           <>
             <motion.button
               type="button"
-              className="studio-bg-btn"
-              onClick={() => setShowBgPicker(!showBgPicker)}
+              className={`studio-bg-btn ${showBgPicker ? 'opt-active' : ''}`}
+              onClick={() => {
+                setShowBgPicker(!showBgPicker);
+                setShowQualityControls(false);
+              }}
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.96 }}
               disabled={shooting}
             >
-              <Image size={16} /> Scene
+              <ImageIcon size={16} /> Background
             </motion.button>
 
             <motion.button
@@ -556,7 +539,7 @@ function StudioRoomComponent({
         )}
       </div>
 
-      {/* Background picker */}
+      {/* Background / Scene Picker Panel */}
       <AnimatePresence>
         {showBgPicker && (
           <motion.div
@@ -566,23 +549,97 @@ function StudioRoomComponent({
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', stiffness: 300, damping: 26 }}
           >
-            <span className="studio-bg-picker-label">Studio Scene</span>
+            <div className="studio-picker-header">
+              <span className="studio-bg-picker-label">Studio Backgrounds</span>
+              <button
+                type="button"
+                className="studio-upload-btn"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload size={13} /> Upload Custom
+              </button>
+            </div>
+
+            {/* Background Mode Switchers */}
+            <div className="studio-mode-tabs">
+              <button
+                type="button"
+                className={`studio-mode-tab ${pipelineSettings.mode === 'color' ? 'active' : ''}`}
+                onClick={() => handleUpdatePipeline({ mode: 'color' })}
+              >
+                <Palette size={13} /> Studio Colors
+              </button>
+              <button
+                type="button"
+                className={`studio-mode-tab ${pipelineSettings.mode === 'blur' ? 'active' : ''}`}
+                onClick={() => handleUpdatePipeline({ mode: 'blur' })}
+              >
+                <Wand2 size={13} /> Blur Background
+              </button>
+              <button
+                type="button"
+                className={`studio-mode-tab ${pipelineSettings.mode === 'transparent' ? 'active' : ''}`}
+                onClick={() => handleUpdatePipeline({ mode: 'transparent' })}
+              >
+                <Layers size={13} /> Transparent
+              </button>
+            </div>
+
+            {/* Studio Preset Scenes Grid */}
             <div className="studio-bg-picker-grid">
               {STUDIO_BACKGROUNDS.map((bg) => (
                 <button
                   key={bg.id}
                   type="button"
-                  className={`studio-bg-option ${background.id === bg.id ? 'active' : ''}`}
+                  className={`studio-bg-option ${
+                    pipelineSettings.mode === 'color' && background.id === bg.id ? 'active' : ''
+                  }`}
                   onClick={() => handleBackgroundChange(bg)}
                   title={bg.name}
                 >
                   <div
                     className="studio-bg-swatch"
                     style={{
-                      background: `linear-gradient(135deg, ${bg.gradient[0]}, ${bg.gradient[bg.gradient.length - 1]})`,
+                      background: `linear-gradient(135deg, ${bg.gradient[0]}, ${
+                        bg.accent || bg.gradient[bg.gradient.length - 1]
+                      })`,
                     }}
                   />
                   <span>{bg.name}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Camera Quality & Resolution Picker Drawer */}
+      <AnimatePresence>
+        {showQualityControls && (
+          <motion.div
+            className="studio-quality-panel"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+          >
+            <div className="studio-picker-header">
+              <span className="studio-bg-picker-label">Camera Quality</span>
+            </div>
+
+            <div className="studio-resolution-list">
+              {RESOLUTION_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`studio-resolution-item ${selectedResolution === opt.id ? 'active' : ''}`}
+                  onClick={() => handleResolutionChange(opt)}
+                >
+                  <div className="studio-res-info">
+                    <span className="studio-res-title">{opt.label}</span>
+                    <span className="studio-res-desc">{opt.desc}</span>
+                  </div>
+                  {selectedResolution === opt.id && <Check size={16} className="studio-res-check" />}
                 </button>
               ))}
             </div>
