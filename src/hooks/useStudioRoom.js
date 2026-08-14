@@ -1,18 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Peer from 'peerjs';
 import { generateRoomCode } from '../utils/roomCode.js';
+import {
+  activeMembers,
+  addOrUpdateMember,
+  bumpRoomState,
+  createInitialRoomState,
+  createMember,
+  MAX_STUDIO_PARTICIPANTS,
+  mergeRoomState,
+  removeMember,
+  updateMember,
+} from '../utils/studioRoomState.js';
 
 /**
- * useStudioRoom — WebRTC P2P room manager using PeerJS.
+ * useStudioRoom — WebRTC P2P room manager with canonical room state.
  *
- * Handles:
- * - Room creation (host) with short room code
- * - Room joining (guest) via room code
- * - Stream sharing between participants
- * - Data channel for synchronized events (countdown, background changes, etc.)
- * - Participant presence tracking
- * - Host authority
- * - Graceful disconnection & cleanup
+ * Architecture:
+ * - Host maintains authoritative ROOM_STATE_SYNC (versioned).
+ * - Media streams are keyed by stable peerId (separate from room membership).
+ * - Guest-to-guest mesh with retry + fallback initiation.
+ * - Room membership persists through temporary media disconnects.
  */
 
 const PEER_CONFIG = {
@@ -24,29 +32,45 @@ const PEER_CONFIG = {
   },
 };
 
-/* Hard cap on simultaneous remote participants (matches PARTICIPANT_LAYOUTS[4]) */
-const MAX_PARTICIPANTS = 4;
+const MESH_RETRY_DELAYS_MS = [0, 400, 1000, 2500, 5000];
+const MESH_FALLBACK_MS = 3500;
+const MEDIA_RECONNECT_GRACE_MS = 8000;
+
+function hostPeerIdForCode(code) {
+  return `memorie-studio-${code}`;
+}
 
 export function useStudioRoom() {
   const [roomCode, setRoomCode] = useState(null);
   const [isHost, setIsHost] = useState(false);
-  const [connectionState, setConnectionState] = useState('idle'); /* idle | creating | waiting | connecting | connected | error */
-  const [participants, setParticipants] = useState([]);
+  const [connectionState, setConnectionState] = useState('idle');
+  const [roomState, setRoomState] = useState(null);
   const [localStream, setLocalStream] = useState(null);
   const [displayName, setDisplayName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [selfPeerId, setSelfPeerId] = useState(null);
+  const [streamVersion, setStreamVersion] = useState(0);
 
   const peerRef = useRef(null);
-  const connectionsRef = useRef(new Map()); /* peerId -> { mediaConn, dataConn, stream, name } */
+  const connectionsRef = useRef(new Map());
+  const streamsRef = useRef(new Map());
   const localStreamRef = useRef(null);
   const roomCodeRef = useRef(null);
   const dataHandlersRef = useRef([]);
-  const connectToPeerRef = useRef(null);
   const isHostRef = useRef(false);
+  const selfPeerIdRef = useRef(null);
+  const roomStateRef = useRef(null);
+  const meshRetryTimersRef = useRef(new Map());
+  const meshFallbackTimersRef = useRef(new Map());
+  const mediaGraceTimersRef = useRef(new Map());
+  const connectToPeerRef = useRef(null);
+  const scheduleMeshRef = useRef(null);
+  const broadcastRoomStateRef = useRef(null);
 
-  /**
-   * Registers a handler for data channel messages.
-   */
+  useEffect(() => {
+    roomStateRef.current = roomState;
+  }, [roomState]);
+
   const onData = useCallback((handler) => {
     dataHandlersRef.current.push(handler);
     return () => {
@@ -54,339 +78,643 @@ export function useStudioRoom() {
     };
   }, []);
 
-  /**
-   * Broadcasts a message to all connected peers via data channels.
-   */
   const broadcast = useCallback((message) => {
     connectionsRef.current.forEach(({ dataConn }) => {
       if (dataConn?.open) {
         try {
           dataConn.send(message);
         } catch {
-          /* Connection may have closed */
+          /* closed */
         }
       }
     });
   }, []);
 
-  const sendPeerList = useCallback((targetConn = null) => {
-    const peers = Array.from(connectionsRef.current.entries()).map(([peerId, entry]) => ({
-      peerId,
-      name: entry.name || 'Guest',
-    }));
-    const message = { type: 'PEER_LIST', peers };
+  const broadcastRoomState = useCallback(
+    (nextState) => {
+      if (!nextState) return;
+      roomStateRef.current = nextState;
+      setRoomState(nextState);
+      broadcast({ type: 'ROOM_STATE_SYNC', roomState: nextState });
+    },
+    [broadcast]
+  );
 
-    if (targetConn) {
-      if (targetConn.open) {
-        try { targetConn.send(message); } catch { /* Connection may have closed */ }
+  useEffect(() => {
+    broadcastRoomStateRef.current = broadcastRoomState;
+  }, [broadcastRoomState]);
+
+  const sendPeerList = useCallback(
+    (targetConn = null) => {
+      const peers = Array.from(connectionsRef.current.entries())
+        .filter(([peerId]) => peerId !== selfPeerIdRef.current)
+        .map(([peerId, entry]) => ({
+          peerId,
+          name: entry.name || 'Guest',
+        }));
+      const message = { type: 'PEER_LIST', peers };
+
+      if (targetConn?.open) {
+        try {
+          targetConn.send(message);
+        } catch {
+          /* closed */
+        }
+        return;
       }
-      return;
-    }
 
-    connectionsRef.current.forEach(({ dataConn }) => {
-      if (dataConn?.open) {
-        try { dataConn.send(message); } catch { /* Connection may have closed */ }
-      }
-    });
-  }, []);
-
-  /* Internal: Handle incoming data from a peer */
-  const handlePeerData = useCallback((data, fromPeerId) => {
-    dataHandlersRef.current.forEach((handler) => handler(data, fromPeerId));
-
-    /* Handle built-in messages */
-    if (data?.type === 'IDENTITY') {
-      const entry = connectionsRef.current.get(fromPeerId);
-      if (entry) {
-        entry.name = data.name;
-        connectionsRef.current.set(fromPeerId, entry);
-      }
-      setParticipants((prev) =>
-        prev.map((p) =>
-          p.peerId === fromPeerId ? { ...p, name: data.name } : p
-        )
-      );
-      if (isHostRef.current) {
-        sendPeerList();
-      }
-    }
-
-    if (data?.type === 'PEER_LIST' && Array.isArray(data.peers)) {
-      data.peers.forEach((peerInfo) => {
-        connectToPeerRef.current?.(peerInfo.peerId, peerInfo.name);
+      connectionsRef.current.forEach(({ dataConn }) => {
+        if (dataConn?.open) {
+          try {
+            dataConn.send(message);
+          } catch {
+            /* closed */
+          }
+        }
       });
-    }
-  }, [sendPeerList]);
+    },
+    []
+  );
 
-  /* Internal: Set up a data connection with a peer */
-  const setupDataConnection = useCallback((dataConn, peerId) => {
-    dataConn.on('data', (data) => handlePeerData(data, peerId));
-    dataConn.on('open', () => {
-      const entry = connectionsRef.current.get(peerId);
-      if (entry) {
-        entry.dataConn = dataConn;
-      }
-      /* Send our identity */
-      dataConn.send({ type: 'IDENTITY', name: displayName || 'Guest' });
+  const setStreamForPeer = useCallback((peerId, stream) => {
+    if (stream) {
+      streamsRef.current.set(peerId, stream);
+    } else {
+      streamsRef.current.delete(peerId);
+    }
+    setStreamVersion((v) => v + 1);
+    setRoomState((prev) => {
+      if (!prev) return prev;
+      const members = updateMember(prev.members, peerId, {
+        mediaState: stream ? 'ready' : 'loading',
+        connectionState: 'connected',
+      });
+      const next = { ...prev, members };
+      roomStateRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const hostAddMember = useCallback(
+    (peerId, name = 'Guest') => {
+      if (!isHostRef.current || !roomStateRef.current) return;
+      const member = createMember({
+        peerId,
+        displayName: name,
+        role: 'guest',
+        joinedAt: Date.now(),
+      });
+      const next = bumpRoomState(roomStateRef.current, {
+        members: addOrUpdateMember(roomStateRef.current.members, member),
+      });
+      broadcastRoomState(next);
+    },
+    [broadcastRoomState]
+  );
+
+  const hostRemoveMember = useCallback(
+    (peerId) => {
+      if (!isHostRef.current || !roomStateRef.current) return;
+      if (peerId === selfPeerIdRef.current) return;
+      const next = bumpRoomState(roomStateRef.current, {
+        members: removeMember(roomStateRef.current.members, peerId),
+      });
+      broadcastRoomState(next);
+    },
+    [broadcastRoomState]
+  );
+
+  const hostUpdateMemberMedia = useCallback(
+    (peerId, mediaState, connectionState = 'connected') => {
+      if (!isHostRef.current || !roomStateRef.current) return;
+      const exists = roomStateRef.current.members.some((m) => m.peerId === peerId);
+      if (!exists) return;
+      const next = bumpRoomState(roomStateRef.current, {
+        members: updateMember(roomStateRef.current.members, peerId, {
+          mediaState,
+          connectionState,
+        }),
+      });
+      broadcastRoomState(next);
+    },
+    [broadcastRoomState]
+  );
+
+  const applyRemoteRoomState = useCallback((incoming) => {
+    setRoomState((prev) => mergeRoomState(prev, incoming));
+  }, []);
+
+  const updateSelfParticipant = useCallback(
+    (patch) => {
+      const peerId = selfPeerIdRef.current;
+      if (!peerId || !roomStateRef.current) return;
+
       if (isHostRef.current) {
-        sendPeerList(dataConn);
-        sendPeerList();
+        const next = bumpRoomState(roomStateRef.current, {
+          members: updateMember(roomStateRef.current.members, peerId, patch),
+        });
+        broadcastRoomState(next);
+      } else {
+        broadcast({ type: 'PARTICIPANT_UPDATE', peerId, patch });
+        setRoomState((prev) => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            members: updateMember(prev.members, peerId, patch),
+          };
+          roomStateRef.current = next;
+          return next;
+        });
       }
-    });
-    dataConn.on('close', () => {
-      /* Peer disconnected */
-    });
-  }, [displayName, handlePeerData, sendPeerList]);
+    },
+    [broadcast, broadcastRoomState]
+  );
 
-  /* Internal: Add a participant with their stream */
-  const addParticipant = useCallback((peerId, stream, name = 'Guest') => {
-    setParticipants((prev) => {
-      const entry = connectionsRef.current.get(peerId);
-      const resolvedName = entry?.name || name;
-      const exists = prev.find((p) => p.peerId === peerId);
-      if (exists) {
-        return prev.map((p) =>
-          p.peerId === peerId ? { ...p, stream, name: resolvedName || p.name } : p
-        );
-      }
-      return [...prev, { peerId, stream, name: resolvedName, isHost: false }];
-    });
-  }, []);
+  const updateHostSettings = useCallback(
+    (patch) => {
+      if (!isHostRef.current || !roomStateRef.current) return;
+      const next = bumpRoomState(roomStateRef.current, patch);
+      broadcastRoomState(next);
+    },
+    [broadcastRoomState]
+  );
 
-  /* Internal: Remove a participant */
-  const removeParticipant = useCallback((peerId) => {
-    setParticipants((prev) => prev.filter((p) => p.peerId !== peerId));
-    const entry = connectionsRef.current.get(peerId);
-    if (entry) {
-      entry.mediaConn?.close();
-      entry.dataConn?.close();
-      connectionsRef.current.delete(peerId);
+  const clearMeshTimers = useCallback((peerId) => {
+    const retry = meshRetryTimersRef.current.get(peerId);
+    if (retry) {
+      clearTimeout(retry);
+      meshRetryTimersRef.current.delete(peerId);
+    }
+    const fallback = meshFallbackTimersRef.current.get(peerId);
+    if (fallback) {
+      clearTimeout(fallback);
+      meshFallbackTimersRef.current.delete(peerId);
     }
   }, []);
 
-  const connectToPeer = useCallback((targetPeerId, name = 'Guest') => {
-    const peer = peerRef.current;
-    const stream = localStreamRef.current;
-    if (!peer || !stream || !targetPeerId || targetPeerId === peer.id) return;
-    if (connectionsRef.current.has(targetPeerId)) return;
+  const clearMediaGraceTimer = useCallback((peerId) => {
+    const t = mediaGraceTimersRef.current.get(peerId);
+    if (t) {
+      clearTimeout(t);
+      mediaGraceTimersRef.current.delete(peerId);
+    }
+  }, []);
 
-    /* Avoid duplicate guest-to-guest calls: only one side initiates. */
-    if (peer.id > targetPeerId) return;
+  const markMediaReconnecting = useCallback(
+    (peerId) => {
+      clearMediaGraceTimer(peerId);
+      setStreamForPeer(peerId, null);
 
-    const mediaConn = peer.call(targetPeerId, stream);
-    if (!mediaConn) return;
+      setRoomState((prev) => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          members: updateMember(prev.members, peerId, {
+            connectionState: 'reconnecting',
+            mediaState: 'loading',
+          }),
+        };
+        roomStateRef.current = next;
+        return next;
+      });
 
-    const dataConn = peer.connect(targetPeerId, { reliable: true });
-    connectionsRef.current.set(targetPeerId, { mediaConn, dataConn, name });
-    setupDataConnection(dataConn, targetPeerId);
+      if (isHostRef.current) {
+        hostUpdateMemberMedia(peerId, 'loading', 'reconnecting');
+      }
 
-    mediaConn.on('stream', (remoteStream) => {
-      const entry = connectionsRef.current.get(targetPeerId) || {};
-      entry.mediaConn = mediaConn;
-      entry.dataConn = dataConn;
+      mediaGraceTimersRef.current.set(
+        peerId,
+        setTimeout(() => {
+          mediaGraceTimersRef.current.delete(peerId);
+          if (!streamsRef.current.has(peerId)) {
+            if (isHostRef.current) {
+              hostRemoveMember(peerId);
+            }
+            const entry = connectionsRef.current.get(peerId);
+            if (entry) {
+              entry.mediaConn?.close();
+              entry.dataConn?.close();
+              connectionsRef.current.delete(peerId);
+            }
+          }
+        }, MEDIA_RECONNECT_GRACE_MS)
+      );
+    },
+    [clearMediaGraceTimer, hostRemoveMember, hostUpdateMemberMedia, setStreamForPeer]
+  );
+
+  const handleIncomingStream = useCallback(
+    (peerId, remoteStream, name = 'Guest') => {
+      clearMediaGraceTimer(peerId);
+      clearMeshTimers(peerId);
+
+      const entry = connectionsRef.current.get(peerId) || {};
       entry.stream = remoteStream;
       entry.name = name || entry.name;
-      connectionsRef.current.set(targetPeerId, entry);
-      addParticipant(targetPeerId, remoteStream, name);
-    });
-    mediaConn.on('close', () => removeParticipant(targetPeerId));
-  }, [addParticipant, removeParticipant, setupDataConnection]);
+      connectionsRef.current.set(peerId, entry);
+
+      setStreamForPeer(peerId, remoteStream);
+
+      if (isHostRef.current) {
+        const existing = roomStateRef.current?.members.some((m) => m.peerId === peerId);
+        if (!existing) {
+          hostAddMember(peerId, name);
+        } else {
+          hostUpdateMemberMedia(peerId, 'ready', 'connected');
+        }
+        sendPeerList();
+      }
+    },
+    [
+      clearMediaGraceTimer,
+      clearMeshTimers,
+      hostAddMember,
+      hostUpdateMemberMedia,
+      sendPeerList,
+      setStreamForPeer,
+    ]
+  );
+
+  const setupIncomingCallHandler = useCallback(
+    (stream) => {
+      const peer = peerRef.current;
+      if (!peer || peer._studioCallHandlerRegistered) return;
+      peer._studioCallHandlerRegistered = true;
+
+      peer.on('call', (incomingCall) => {
+        const remotePeerId = incomingCall.peer;
+        if (remotePeerId === selfPeerIdRef.current) {
+          try {
+            incomingCall.close();
+          } catch {
+            /* noop */
+          }
+          return;
+        }
+
+        const remoteCount = Array.from(connectionsRef.current.keys()).filter(
+          (id) => id !== selfPeerIdRef.current
+        ).length;
+        if (!connectionsRef.current.has(remotePeerId) && remoteCount >= MAX_STUDIO_PARTICIPANTS - 1) {
+          try {
+            incomingCall.close();
+          } catch {
+            /* noop */
+          }
+          return;
+        }
+
+        incomingCall.answer(stream);
+        const entry = connectionsRef.current.get(remotePeerId) || {};
+        entry.mediaConn = incomingCall;
+        connectionsRef.current.set(remotePeerId, entry);
+
+        incomingCall.on('stream', (remoteStream) => {
+          handleIncomingStream(remotePeerId, remoteStream, entry.name);
+          setConnectionState('connected');
+        });
+
+        incomingCall.on('close', () => {
+          markMediaReconnecting(remotePeerId);
+        });
+      });
+    },
+    [handleIncomingStream, markMediaReconnecting]
+  );
+
+  const setupDataConnection = useCallback(
+    (dataConn, peerId) => {
+      dataConn.on('data', (data) => {
+        dataHandlersRef.current.forEach((handler) => handler(data, peerId));
+
+        if (data?.type === 'IDENTITY') {
+          const entry = connectionsRef.current.get(peerId) || {};
+          entry.name = data.name;
+          connectionsRef.current.set(peerId, entry);
+          if (isHostRef.current) {
+            hostAddMember(peerId, data.name);
+            sendPeerList();
+          }
+        }
+
+        if (data?.type === 'PEER_LIST' && Array.isArray(data.peers)) {
+          data.peers.forEach((peerInfo) => {
+            scheduleMeshRef.current?.(peerInfo.peerId, peerInfo.name);
+          });
+        }
+
+        if (data?.type === 'ROOM_STATE_SYNC' && data.roomState) {
+          applyRemoteRoomState(data.roomState);
+        }
+
+        if (data?.type === 'PARTICIPANT_UPDATE' && isHostRef.current) {
+          const { peerId: senderId, patch } = data;
+          if (!senderId || senderId !== peerId || !roomStateRef.current) return;
+          const next = bumpRoomState(roomStateRef.current, {
+            members: updateMember(roomStateRef.current.members, senderId, patch),
+          });
+          broadcastRoomStateRef.current?.(next);
+        }
+
+        if (data?.type === 'LEAVE' && isHostRef.current) {
+          hostRemoveMember(data.peerId || peerId);
+          const entry = connectionsRef.current.get(peerId);
+          entry?.mediaConn?.close();
+          entry?.dataConn?.close();
+          connectionsRef.current.delete(peerId);
+          streamsRef.current.delete(peerId);
+        }
+      });
+
+      dataConn.on('open', () => {
+        const entry = connectionsRef.current.get(peerId) || {};
+        entry.dataConn = dataConn;
+        connectionsRef.current.set(peerId, entry);
+
+        dataConn.send({
+          type: 'IDENTITY',
+          name: displayName || (isHostRef.current ? 'Host' : 'Guest'),
+          peerId: selfPeerIdRef.current,
+        });
+
+        if (isHostRef.current) {
+          sendPeerList(dataConn);
+          if (roomStateRef.current) {
+            dataConn.send({ type: 'ROOM_STATE_SYNC', roomState: roomStateRef.current });
+          }
+        }
+      });
+    },
+    [
+      applyRemoteRoomState,
+      displayName,
+      hostAddMember,
+      hostRemoveMember,
+      sendPeerList,
+    ]
+  );
+
+  const connectToPeer = useCallback(
+    (targetPeerId, name = 'Guest', force = false) => {
+      const peer = peerRef.current;
+      const stream = localStreamRef.current;
+      if (!peer || !stream || !targetPeerId || targetPeerId === peer.id) return;
+
+      const existing = connectionsRef.current.get(targetPeerId);
+      if (existing?.stream) return;
+
+      if (!force && peer.id > targetPeerId) {
+        if (!meshFallbackTimersRef.current.has(targetPeerId)) {
+          meshFallbackTimersRef.current.set(
+            targetPeerId,
+            setTimeout(() => {
+              meshFallbackTimersRef.current.delete(targetPeerId);
+              if (!connectionsRef.current.get(targetPeerId)?.stream) {
+                connectToPeerRef.current?.(targetPeerId, name, true);
+              }
+            }, MESH_FALLBACK_MS)
+          );
+        }
+        return;
+      }
+
+      if (existing?.mediaConn && !existing.stream) {
+        try {
+          existing.mediaConn.close();
+        } catch {
+          /* noop */
+        }
+      }
+
+      const mediaConn = peer.call(targetPeerId, stream);
+      if (!mediaConn) return;
+
+      let dataConn = existing?.dataConn;
+      if (!dataConn || !dataConn.open) {
+        dataConn = peer.connect(targetPeerId, { reliable: true });
+        setupDataConnection(dataConn, targetPeerId);
+      }
+
+      connectionsRef.current.set(targetPeerId, {
+        mediaConn,
+        dataConn,
+        name,
+        stream: existing?.stream || null,
+      });
+
+      mediaConn.on('stream', (remoteStream) => {
+        handleIncomingStream(targetPeerId, remoteStream, name);
+      });
+
+      mediaConn.on('close', () => {
+        markMediaReconnecting(targetPeerId);
+      });
+    },
+    [handleIncomingStream, markMediaReconnecting, setupDataConnection]
+  );
+
+  const scheduleMeshConnect = useCallback(
+    (targetPeerId, name = 'Guest', attempt = 0) => {
+      if (!targetPeerId || targetPeerId === selfPeerIdRef.current) return;
+      if (connectionsRef.current.get(targetPeerId)?.stream) return;
+
+      connectToPeerRef.current?.(targetPeerId, name);
+
+      if (attempt < MESH_RETRY_DELAYS_MS.length - 1) {
+        const existing = meshRetryTimersRef.current.get(targetPeerId);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+          scheduleMeshConnect(targetPeerId, name, attempt + 1);
+        }, MESH_RETRY_DELAYS_MS[attempt + 1]);
+        meshRetryTimersRef.current.set(targetPeerId, timer);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     connectToPeerRef.current = connectToPeer;
-  }, [connectToPeer]);
+    scheduleMeshRef.current = scheduleMeshConnect;
+  }, [connectToPeer, scheduleMeshConnect]);
 
   useEffect(() => {
     isHostRef.current = isHost;
   }, [isHost]);
 
-  /**
-   * Creates a new studio room as host.
-   */
-  const createRoom = useCallback(async (stream, name) => {
-    setConnectionState('creating');
-    setErrorMessage('');
-    const code = generateRoomCode();
-    setRoomCode(code);
-    roomCodeRef.current = code;
-    setIsHost(true);
-    isHostRef.current = true;
-    setDisplayName(name || 'Host');
-    localStreamRef.current = stream;
-    setLocalStream(stream);
+  const createRoom = useCallback(
+    async (stream, name) => {
+      setConnectionState('creating');
+      setErrorMessage('');
+      const code = generateRoomCode();
+      const hostId = hostPeerIdForCode(code);
 
-    try {
-      /* The host's peerId IS the room code for easy joining */
-      const peer = new Peer(`memorie-studio-${code}`, PEER_CONFIG);
-      peerRef.current = peer;
+      setRoomCode(code);
+      roomCodeRef.current = code;
+      setIsHost(true);
+      isHostRef.current = true;
+      setDisplayName(name || 'Host');
+      setSelfPeerId(hostId);
+      selfPeerIdRef.current = hostId;
+      localStreamRef.current = stream;
+      setLocalStream(stream);
 
-      await new Promise((resolve, reject) => {
-        peer.on('open', () => resolve());
-        peer.on('error', (err) => reject(err));
-        /* Timeout after 15 seconds */
-        setTimeout(() => reject(new Error('Connection timed out')), 15000);
+      const initialState = createInitialRoomState({
+        hostPeerId: hostId,
+        hostName: name || 'Host',
       });
+      initialState.members[0].mediaState = 'ready';
+      roomStateRef.current = initialState;
+      setRoomState(initialState);
 
-      setConnectionState('waiting');
+      try {
+        const peer = new Peer(hostId, PEER_CONFIG);
+        peerRef.current = peer;
 
-      /* Listen for incoming connections (reject when the room is full) */
-      peer.on('call', (mediaConn) => {
-        if (!connectionsRef.current.has(mediaConn.peer) && connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
-          try { mediaConn.close(); } catch { /* already closed */ }
-          return;
-        }
-        /* Answer immediately and reserve a slot so the cap is enforced
-           before the remote stream arrives */
-        mediaConn.answer(stream);
-        const entry = connectionsRef.current.get(mediaConn.peer) || {};
-        entry.mediaConn = mediaConn;
-        connectionsRef.current.set(mediaConn.peer, entry);
-        mediaConn.on('stream', (remoteStream) => {
-          const current = connectionsRef.current.get(mediaConn.peer) || {};
-          current.stream = remoteStream;
-          connectionsRef.current.set(mediaConn.peer, current);
-          addParticipant(mediaConn.peer, remoteStream);
-          sendPeerList();
-          setConnectionState('connected');
+        await new Promise((resolve, reject) => {
+          peer.on('open', () => resolve());
+          peer.on('error', (err) => reject(err));
+          setTimeout(() => reject(new Error('Connection timed out')), 15000);
         });
-        mediaConn.on('close', () => {
-          removeParticipant(mediaConn.peer);
-          if (connectionsRef.current.size === 0) {
-            setConnectionState('waiting');
+
+        setupIncomingCallHandler(stream);
+
+        setConnectionState('waiting');
+
+        peer.on('connection', (dataConn) => {
+          const remoteCount = Array.from(connectionsRef.current.keys()).filter(
+            (id) => id !== selfPeerIdRef.current
+          ).length;
+          if (!connectionsRef.current.has(dataConn.peer) && remoteCount >= MAX_STUDIO_PARTICIPANTS - 1) {
+            try {
+              dataConn.close();
+            } catch {
+              /* noop */
+            }
+            return;
           }
-        });
-      });
-
-      peer.on('connection', (dataConn) => {
-        if (!connectionsRef.current.has(dataConn.peer) && connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
-          try { dataConn.close(); } catch { /* already closed */ }
-          return;
-        }
-        const entry = connectionsRef.current.get(dataConn.peer) || {};
-        entry.dataConn = dataConn;
-        connectionsRef.current.set(dataConn.peer, entry);
-        setupDataConnection(dataConn, dataConn.peer);
-      });
-
-      peer.on('disconnected', () => {
-        /* Try to reconnect */
-        if (!peer.destroyed) {
-          peer.reconnect();
-        }
-      });
-
-      return code;
-    } catch (err) {
-      console.error('Failed to create studio room:', err);
-      setConnectionState('error');
-      setErrorMessage('Could not create studio. Please try again.');
-      return null;
-    }
-  }, [addParticipant, removeParticipant, setupDataConnection]);
-
-  /**
-   * Joins an existing studio room as a guest.
-   */
-  const joinRoom = useCallback(async (code, stream, name) => {
-    setConnectionState('connecting');
-    setErrorMessage('');
-    setRoomCode(code);
-    roomCodeRef.current = code;
-    setIsHost(false);
-    isHostRef.current = false;
-    setDisplayName(name || 'Guest');
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-
-    try {
-      const peer = new Peer(undefined, PEER_CONFIG);
-      peerRef.current = peer;
-
-      await new Promise((resolve, reject) => {
-        peer.on('open', () => resolve());
-        peer.on('error', (err) => reject(err));
-        setTimeout(() => reject(new Error('Connection timed out')), 15000);
-      });
-
-      const hostPeerId = `memorie-studio-${code}`;
-
-      /* Establish media connection */
-      const mediaConn = peer.call(hostPeerId, stream);
-      if (!mediaConn) {
-        throw new Error('Could not connect to studio');
-      }
-
-      /* Establish data channel */
-      const dataConn = peer.connect(hostPeerId, { reliable: true });
-      setupDataConnection(dataConn, hostPeerId);
-
-      await new Promise((resolve, reject) => {
-        mediaConn.on('stream', (remoteStream) => {
-          const entry = connectionsRef.current.get(hostPeerId) || {};
-          entry.mediaConn = mediaConn;
+          const entry = connectionsRef.current.get(dataConn.peer) || {};
           entry.dataConn = dataConn;
-          entry.stream = remoteStream;
-          connectionsRef.current.set(hostPeerId, entry);
-          addParticipant(hostPeerId, remoteStream, 'Host');
-          setConnectionState('connected');
-          resolve();
+          connectionsRef.current.set(dataConn.peer, entry);
+          setupDataConnection(dataConn, dataConn.peer);
         });
-        mediaConn.on('error', (err) => reject(err));
+
+        peer.on('disconnected', () => {
+          if (!peer.destroyed) peer.reconnect();
+        });
+
+        return code;
+      } catch (err) {
+        console.error('Failed to create studio room:', err);
+        setConnectionState('error');
+        setErrorMessage('Could not create studio. Please try again.');
+        return null;
+      }
+    },
+    [setupDataConnection, setupIncomingCallHandler]
+  );
+
+  const joinRoom = useCallback(
+    async (code, stream, name) => {
+      setConnectionState('connecting');
+      setErrorMessage('');
+      setRoomCode(code);
+      roomCodeRef.current = code;
+      setIsHost(false);
+      isHostRef.current = false;
+      setDisplayName(name || 'Guest');
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+
+      try {
+        const peer = new Peer(undefined, PEER_CONFIG);
+        peerRef.current = peer;
+
+        await new Promise((resolve, reject) => {
+          peer.on('open', () => resolve());
+          peer.on('error', (err) => reject(err));
+          setTimeout(() => reject(new Error('Connection timed out')), 15000);
+        });
+
+        setSelfPeerId(peer.id);
+        selfPeerIdRef.current = peer.id;
+
+        setupIncomingCallHandler(stream);
+
+        const hostId = hostPeerIdForCode(code);
+        setRoomState({
+          version: 0,
+          backgroundId: 'y2k-chrome',
+          timer: 3,
+          shots: 4,
+          capturePhase: 'idle',
+          members: [],
+        });
+
+        const mediaConn = peer.call(hostId, stream);
+        if (!mediaConn) throw new Error('Could not connect to studio');
+
+        const dataConn = peer.connect(hostId, { reliable: true });
+        connectionsRef.current.set(hostId, { mediaConn, dataConn, name: 'Host' });
+        setupDataConnection(dataConn, hostId);
+
         mediaConn.on('close', () => {
-          removeParticipant(hostPeerId);
+          markMediaReconnecting(hostId);
           setConnectionState('error');
           setErrorMessage('The studio session has ended or is full.');
         });
-        setTimeout(() => reject(new Error('Studio not found or connection timed out')), 20000);
-      });
 
-      /* Listen for additional peers connecting (from host) */
-      peer.on('call', (incomingCall) => {
-        if (!connectionsRef.current.has(incomingCall.peer) && connectionsRef.current.size >= MAX_PARTICIPANTS - 1) {
-          try { incomingCall.close(); } catch { /* already closed */ }
-          return;
-        }
-        incomingCall.answer(stream);
-        const entry = connectionsRef.current.get(incomingCall.peer) || {};
-        entry.mediaConn = incomingCall;
-        connectionsRef.current.set(incomingCall.peer, entry);
-        incomingCall.on('stream', (remoteStream) => {
-          const current = connectionsRef.current.get(incomingCall.peer) || {};
-          current.stream = remoteStream;
-          connectionsRef.current.set(incomingCall.peer, current);
-          addParticipant(incomingCall.peer, remoteStream);
+        await new Promise((resolve, reject) => {
+          mediaConn.on('stream', (remoteStream) => {
+            handleIncomingStream(hostId, remoteStream, 'Host');
+            setConnectionState('connected');
+            resolve();
+          });
+          mediaConn.on('error', (err) => reject(err));
+          setTimeout(() => reject(new Error('Studio not found or connection timed out')), 20000);
         });
-      });
 
-      peer.on('connection', (inDataConn) => {
-        const entry = connectionsRef.current.get(inDataConn.peer) || {};
-        entry.dataConn = inDataConn;
-        connectionsRef.current.set(inDataConn.peer, entry);
-        setupDataConnection(inDataConn, inDataConn.peer);
-      });
+        peer.on('connection', (inDataConn) => {
+          const entry = connectionsRef.current.get(inDataConn.peer) || {};
+          entry.dataConn = inDataConn;
+          connectionsRef.current.set(inDataConn.peer, entry);
+          setupDataConnection(inDataConn, inDataConn.peer);
+        });
 
-      return true;
-    } catch (err) {
-      console.error('Failed to join studio:', err);
-      setConnectionState('error');
-      setErrorMessage(
-        err.message?.includes('not found') || err.message?.includes('timed out')
-          ? 'Studio not found. Check the code and try again.'
-          : 'Could not connect to studio. Please try again.'
-      );
-      return false;
-    }
-  }, [addParticipant, removeParticipant, setupDataConnection]);
+        peer.on('disconnected', () => {
+          if (!peer.destroyed) peer.reconnect();
+        });
 
-  /**
-   * Leaves the current room and cleans up all connections.
-   */
+        return true;
+      } catch (err) {
+        console.error('Failed to join studio:', err);
+        setConnectionState('error');
+        setErrorMessage(
+          err.message?.includes('not found') || err.message?.includes('timed out')
+            ? 'Studio not found. Check the code and try again.'
+            : 'Could not connect to studio. Please try again.'
+        );
+        return false;
+      }
+    },
+    [handleIncomingStream, markMediaReconnecting, setupDataConnection, setupIncomingCallHandler]
+  );
+
   const leaveRoom = useCallback(() => {
+    broadcast({ type: 'LEAVE', peerId: selfPeerIdRef.current });
+
+    meshRetryTimersRef.current.forEach((t) => clearTimeout(t));
+    meshRetryTimersRef.current.clear();
+    meshFallbackTimersRef.current.forEach((t) => clearTimeout(t));
+    meshFallbackTimersRef.current.clear();
+    mediaGraceTimersRef.current.forEach((t) => clearTimeout(t));
+    mediaGraceTimersRef.current.clear();
+
     connectionsRef.current.forEach(({ mediaConn, dataConn }) => {
       mediaConn?.close();
       dataConn?.close();
     });
     connectionsRef.current.clear();
+    streamsRef.current.clear();
 
     if (peerRef.current && !peerRef.current.destroyed) {
       peerRef.current.destroy();
@@ -400,32 +728,60 @@ export function useStudioRoom() {
 
     setRoomCode(null);
     setIsHost(false);
+    setSelfPeerId(null);
+    selfPeerIdRef.current = null;
     setConnectionState('idle');
-    setParticipants([]);
+    setRoomState(null);
+    roomStateRef.current = null;
     setLocalStream(null);
     setErrorMessage('');
     dataHandlersRef.current = [];
-  }, []);
+  }, [broadcast]);
 
-  /* Cleanup on unmount */
   useEffect(() => {
     return () => {
+      meshRetryTimersRef.current.forEach((t) => clearTimeout(t));
+      meshFallbackTimersRef.current.forEach((t) => clearTimeout(t));
+      mediaGraceTimersRef.current.forEach((t) => clearTimeout(t));
       connectionsRef.current.forEach(({ mediaConn, dataConn }) => {
         mediaConn?.close();
         dataConn?.close();
       });
-      connectionsRef.current.clear();
       if (peerRef.current && !peerRef.current.destroyed) {
         peerRef.current.destroy();
       }
     };
   }, []);
 
+  const participants = (roomState?.members ? activeMembers(roomState.members) : [])
+    .filter((m) => m.peerId !== selfPeerIdRef.current)
+    .map((m) => ({
+      peerId: m.peerId,
+      name: m.displayName,
+      stream: streamsRef.current.get(m.peerId) || null,
+      isHost: m.role === 'host',
+      mirror: m.mirror,
+      flash: m.flash,
+      transform: m.transform,
+      connectionState: m.connectionState,
+      mediaState: m.mediaState,
+      joinedAt: m.joinedAt,
+    }));
+  /* streamVersion keeps participants in sync when streams arrive */
+  void streamVersion;
+
+  const getStreamForPeer = useCallback((peerId) => {
+    if (peerId === selfPeerIdRef.current) return localStreamRef.current;
+    return streamsRef.current.get(peerId) || null;
+  }, []);
+
   return {
     roomCode,
     isHost,
     connectionState,
+    roomState,
     participants,
+    selfPeerId,
     localStream,
     displayName,
     errorMessage,
@@ -435,5 +791,9 @@ export function useStudioRoom() {
     broadcast,
     onData,
     setDisplayName,
+    updateSelfParticipant,
+    updateHostSettings,
+    getStreamForPeer,
+    streamsRef,
   };
 }

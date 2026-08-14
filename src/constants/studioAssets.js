@@ -90,27 +90,59 @@ export const STUDIO_BACKGROUNDS = [
 export const PARTICIPANT_LAYOUTS = {
   1: [{ x: 0.50, y: 0.52, scale: 1.00, zIndex: 1 }],
   2: [
-    { x: 0.35, y: 0.52, scale: 0.88, zIndex: 1 },
-    { x: 0.65, y: 0.52, scale: 0.88, zIndex: 2 },
+    { x: 0.30, y: 0.52, scale: 0.88, zIndex: 1 },
+    { x: 0.70, y: 0.52, scale: 0.88, zIndex: 2 },
   ],
   3: [
-    { x: 0.28, y: 0.48, scale: 0.78, zIndex: 1 },
-    { x: 0.72, y: 0.48, scale: 0.78, zIndex: 2 },
-    { x: 0.50, y: 0.58, scale: 0.84, zIndex: 3 },
+    { x: 0.20, y: 0.50, scale: 0.78, zIndex: 1 },
+    { x: 0.50, y: 0.50, scale: 0.78, zIndex: 2 },
+    { x: 0.80, y: 0.50, scale: 0.78, zIndex: 3 },
   ],
   4: [
-    { x: 0.26, y: 0.46, scale: 0.72, zIndex: 1 },
-    { x: 0.74, y: 0.46, scale: 0.72, zIndex: 2 },
-    { x: 0.38, y: 0.58, scale: 0.76, zIndex: 3 },
-    { x: 0.62, y: 0.58, scale: 0.76, zIndex: 4 },
+    { x: 0.15, y: 0.50, scale: 0.72, zIndex: 1 },
+    { x: 0.38, y: 0.50, scale: 0.72, zIndex: 2 },
+    { x: 0.62, y: 0.50, scale: 0.72, zIndex: 3 },
+    { x: 0.85, y: 0.50, scale: 0.72, zIndex: 4 },
   ],
 };
 
+/** Module-level image cache so custom backgrounds don't reload every frame. */
+const _bgImageCache = new Map();
+
 /**
  * Render Studio Background (Layer 0) on 2D context.
+ * Supports both gradient presets and custom image URLs (data: or https:).
  */
 export function drawStudioBackground(ctx, bg, w, h) {
   if (!ctx) return;
+
+  /* Custom image background — drawn over the default gradient */
+  if (bg?.customImageUrl) {
+    /* Always draw gradient first as a fallback while image loads */
+    const fallbackGrad = ['#2d1b4e', '#1a0a2e', '#0d0520'];
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    fallbackGrad.forEach((color, i) => {
+      grad.addColorStop(i / (fallbackGrad.length - 1), color);
+    });
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const cached = _bgImageCache.get(bg.customImageUrl);
+    if (cached?.complete && cached.naturalWidth > 0) {
+      ctx.drawImage(cached, 0, 0, w, h);
+    } else if (!cached) {
+      /* Kick off async load — next frame will pick it up */
+      const img = new Image();
+      img.src = bg.customImageUrl;
+      _bgImageCache.set(bg.customImageUrl, img);
+      /* Limit cache size to 4 entries (one per session) */
+      if (_bgImageCache.size > 4) {
+        const oldest = _bgImageCache.keys().next().value;
+        _bgImageCache.delete(oldest);
+      }
+    }
+    return;
+  }
 
   const defaultGradient = ['#2d1b4e', '#1a0a2e', '#0d0520'];
   const gradientColors = (bg && bg.gradient && bg.gradient.length > 0) ? bg.gradient : defaultGradient;
@@ -144,4 +176,3 @@ export function drawStudioBackground(ctx, bg, w, h) {
     ctx.fillRect(0, 0, w, h);
   }
 }
-

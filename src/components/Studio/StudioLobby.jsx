@@ -5,10 +5,20 @@ import { Check, Copy, Sparkles, Users } from 'lucide-react';
 /**
  * StudioLobby — Waiting room displayed after creating a studio.
  *
- * Shows the room code prominently, a copy button, participant count,
- * and an "Enter Studio" button to proceed once friends join.
+ * Shows the room code prominently, a copy button, canonical participant count
+ * from roomState (host-authoritative, not stream-derived), and an "Enter Studio" button.
  */
-function StudioLobbyComponent({ roomCode, participants, localStream, displayName, onEnterStudio, onLeave, mirrorOn = true }) {
+function StudioLobbyComponent({
+  roomCode,
+  roomState,
+  participants,
+  localStream,
+  displayName,
+  selfPeerId,
+  onEnterStudio,
+  onLeave,
+  mirrorOn = true,
+}) {
   const [copied, setCopied] = useState(false);
 
   const copyCode = useCallback(async () => {
@@ -29,7 +39,15 @@ function StudioLobbyComponent({ roomCode, participants, localStream, displayName
     }
   }, [roomCode]);
 
-  const totalParticipants = 1 + participants.length; /* self + remotes */
+  /* Canonical member count from room state (host-authoritative).
+     Falls back to stream-derived count before first ROOM_STATE_SYNC arrives. */
+  const canonicalMembers = (roomState?.members ?? []).filter(
+    (m) => m.connectionState !== 'left'
+  );
+  const totalParticipants = canonicalMembers.length || 1 + participants.length;
+
+  /* Stream-derived list still used to show live video thumbnails */
+  const remoteParticipants = participants;
 
   return (
     <motion.div
@@ -76,7 +94,7 @@ function StudioLobbyComponent({ roomCode, participants, localStream, displayName
 
       <div className="studio-lobby-participants">
         <div className="studio-lobby-participants-header">
-          {participants.length === 0 ? (
+          {totalParticipants <= 1 ? (
             <motion.span
               className="studio-waiting-text"
               animate={{ opacity: [0.5, 1, 0.5] }}
@@ -106,41 +124,83 @@ function StudioLobbyComponent({ roomCode, participants, localStream, displayName
               )}
             </div>
             <span className="studio-lobby-avatar-name">{displayName || 'YOU'}</span>
-            <span className="studio-lobby-avatar-badge">Host</span>
+            {/* Role badge from canonical room state */}
+            {(() => {
+              const selfMember = canonicalMembers.find((m) => m.peerId === selfPeerId);
+              const role = selfMember?.role || 'host';
+              return (
+                <span className="studio-lobby-avatar-badge">
+                  {role === 'host' ? 'Host' : 'Guest'}
+                </span>
+              );
+            })()}
           </div>
 
-          {/* Remote participants */}
-          {participants.map((p) => (
-            <motion.div
-              key={p.peerId}
-              className="studio-lobby-avatar"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring' }}
-            >
-              <div className="studio-lobby-avatar-video">
-                {p.stream && (
-                  <video
-                    autoPlay
-                    playsInline
-                    muted
-                    ref={(el) => { if (el && el.srcObject !== p.stream) el.srcObject = p.stream; }}
-                  />
-                )}
-              </div>
-              <span className="studio-lobby-avatar-name">{p.name || 'Guest'}</span>
-            </motion.div>
-          ))}
+          {/* Remote participants — show canonical members (even without streams yet) */}
+          {canonicalMembers
+            .filter((m) => m.peerId !== selfPeerId)
+            .map((member) => {
+              const liveParticipant = remoteParticipants.find((p) => p.peerId === member.peerId);
+              return (
+                <motion.div
+                  key={member.peerId}
+                  className="studio-lobby-avatar"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: 'spring' }}
+                >
+                  <div className="studio-lobby-avatar-video">
+                    {liveParticipant?.stream ? (
+                      <video
+                        autoPlay
+                        playsInline
+                        muted
+                        ref={(el) => {
+                          if (el && el.srcObject !== liveParticipant.stream) {
+                            el.srcObject = liveParticipant.stream;
+                          }
+                        }}
+                      />
+                    ) : (
+                      /* Member in room state but stream not yet ready */
+                      <motion.div
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'rgba(255,255,255,0.06)',
+                          borderRadius: '50%',
+                          fontSize: 22,
+                        }}
+                        animate={{ opacity: [0.4, 0.9, 0.4] }}
+                        transition={{ duration: 1.8, repeat: Infinity }}
+                      >
+                        👤
+                      </motion.div>
+                    )}
+                  </div>
+                  <span className="studio-lobby-avatar-name">{member.displayName || 'Guest'}</span>
+                  {member.role === 'host' && (
+                    <span className="studio-lobby-avatar-badge">Host</span>
+                  )}
+                </motion.div>
+              );
+            })}
 
-          {/* Empty invite slots */}
-          {Array.from({ length: Math.max(0, 3 - participants.length) }, (_, i) => (
-            <div key={`empty-${i}`} className="studio-lobby-avatar studio-lobby-avatar-empty">
-              <div className="studio-lobby-avatar-video studio-lobby-avatar-invite">
-                <span>+</span>
+          {/* Empty invite slots — based on canonical count to avoid flicker */}
+          {Array.from(
+            { length: Math.max(0, 3 - (canonicalMembers.length - 1)) },
+            (_, i) => (
+              <div key={`empty-${i}`} className="studio-lobby-avatar studio-lobby-avatar-empty">
+                <div className="studio-lobby-avatar-video studio-lobby-avatar-invite">
+                  <span>+</span>
+                </div>
+                <span className="studio-lobby-avatar-name">Invite</span>
               </div>
-              <span className="studio-lobby-avatar-name">Invite</span>
-            </div>
-          ))}
+            )
+          )}
         </div>
       </div>
 

@@ -3,11 +3,9 @@ import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
 /**
  * SegmentationPipeline — Per-participant MediaPipe selfie segmentation manager.
  *
- * Provides:
- * - Lazy initialization of MediaPipe ImageSegmenter (GPU/CPU fallback).
- * - Per-participant transparent person cutout generation using 2D canvas `destination-in` alpha blend.
- * - Frame throttling & mask caching for smooth multi-user live preview.
- * - High-precision HD segmentation pass for final snapshot capture.
+ * - One shared model, per-participant cutout cache & timestamp tracking.
+ * - Adaptive throttling based on active participant count.
+ * - Graceful degradation when model is still loading.
  */
 
 class SegmentationPipeline {
@@ -15,12 +13,21 @@ class SegmentationPipeline {
     this.segmenter = null;
     this.isReady = false;
     this.initPromise = null;
-    this.participantCutouts = new Map(); /* peerId -> { cutoutCanvas, maskCanvas, lastSegmentTime } */
-    this.segmentIntervalMs = 50; /* ~20 Hz segmentation updates per participant */
+    this.initFailed = false;
+    this.participantCutouts = new Map();
+    this.baseIntervalMs = 50;
+  }
+
+  getIntervalForCount(count) {
+    if (count <= 1) return 50;
+    if (count === 2) return 66;
+    if (count === 3) return 100;
+    return 125;
   }
 
   async init() {
     if (this.isReady) return;
+    if (this.initFailed && this._initRetryCount >= 3) return;
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
@@ -39,8 +46,7 @@ class SegmentationPipeline {
             outputConfidenceMasks: true,
             outputCategoryMask: false,
           });
-        } catch (gpuErr) {
-          console.warn('MediaPipe GPU delegate failed, falling back to CPU:', gpuErr);
+        } catch {
           this.segmenter = await ImageSegmenter.createFromOptions(vision, {
             baseOptions: { modelAssetPath, delegate: 'CPU' },
             runningMode: 'VIDEO',
@@ -49,17 +55,29 @@ class SegmentationPipeline {
           });
         }
         this.isReady = true;
+        this.initFailed = false;
+        this._initRetryCount = 0;
       } catch (err) {
         console.error('Failed to initialize MediaPipe ImageSegmenter:', err);
+        this.initFailed = true;
+        this._initRetryCount = (this._initRetryCount || 0) + 1;
+        this.initPromise = null; /* allow retry */
+
+        if (this._initRetryCount < 3) {
+          const delayMs = 5000 * this._initRetryCount;
+          console.warn(
+            `Segmentation init failed (attempt ${this._initRetryCount}/3). Retrying in ${delayMs / 1000}s…`
+          );
+          setTimeout(() => this.init(), delayMs);
+        } else {
+          console.error('Segmentation init permanently failed after 3 attempts.');
+        }
       }
     })();
 
     return this.initPromise;
   }
 
-  /**
-   * Returns or initializes the cutout cache entry for a participant.
-   */
   getParticipantEntry(peerId) {
     if (!this.participantCutouts.has(peerId)) {
       const cutoutCanvas = document.createElement('canvas');
@@ -74,25 +92,32 @@ class SegmentationPipeline {
         cutoutCanvas,
         maskCanvas,
         lastSegmentTime: 0,
+        lastTimestampMs: 0,
         hasMask: false,
+        status: 'loading',
       });
     }
     return this.participantCutouts.get(peerId);
   }
 
-  /**
-   * Process a participant video frame into a transparent person cutout.
-   * Uses cached cutout canvas if interval has not elapsed (live preview throttling).
-   */
-  processParticipant(peerId, videoElement, mirror = false, forceHD = false) {
+  getStatus(peerId) {
+    const entry = this.participantCutouts.get(peerId);
+    if (!entry) return 'idle';
+    if (this.initFailed) return 'error';
+    if (!this.isReady) return 'loading';
+    if (entry.hasMask) return 'ready';
+    return entry.status || 'loading';
+  }
+
+  processParticipant(peerId, videoElement, mirror = false, forceHD = false, activeCount = 1) {
     if (!videoElement || (videoElement.readyState < 1 && videoElement.videoWidth === 0)) {
-      return this.participantCutouts.get(peerId)?.cutoutCanvas || null;
+      return { cutout: this.participantCutouts.get(peerId)?.cutoutCanvas || null, status: 'loading' };
     }
 
     const entry = this.getParticipantEntry(peerId);
     const now = performance.now();
+    const intervalMs = this.getIntervalForCount(activeCount);
 
-    /* Match cutout canvas dimensions to video */
     const vW = videoElement.videoWidth || 640;
     const vH = videoElement.videoHeight || 480;
     if (entry.cutoutCanvas.width !== vW || entry.cutoutCanvas.height !== vH) {
@@ -101,20 +126,19 @@ class SegmentationPipeline {
     }
 
     const cutoutCtx = entry.cutoutCanvas.getContext('2d');
-    if (!cutoutCtx) return null;
+    if (!cutoutCtx) return { cutout: null, status: 'error' };
 
-    /* Check if we should run a fresh segmentation inference pass */
     const shouldSegment =
       forceHD ||
       !entry.hasMask ||
-      now - entry.lastSegmentTime >= this.segmentIntervalMs;
+      now - entry.lastSegmentTime >= intervalMs;
 
     if (shouldSegment && this.isReady && this.segmenter) {
       try {
-        const timestampMs = Math.round(now);
-        const result = this.segmenter.segmentForVideo(videoElement, timestampMs);
+        entry.lastTimestampMs = Math.max(entry.lastTimestampMs + 1, Math.round(now));
+        const result = this.segmenter.segmentForVideo(videoElement, entry.lastTimestampMs);
 
-        if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
+        if (result?.confidenceMasks?.length > 0) {
           const maskIndex = result.confidenceMasks.length > 1 ? 1 : 0;
           const maskImage = result.confidenceMasks[maskIndex];
           const mW = maskImage.width;
@@ -141,20 +165,23 @@ class SegmentationPipeline {
             maskCtx.putImageData(imgData, 0, 0);
             entry.hasMask = true;
             entry.lastSegmentTime = now;
+            entry.status = 'ready';
           }
 
           for (let i = 0; i < result.confidenceMasks.length; i++) {
-            if (result.confidenceMasks[i] && typeof result.confidenceMasks[i].close === 'function') {
+            if (result.confidenceMasks[i]?.close) {
               result.confidenceMasks[i].close();
             }
           }
         }
       } catch (err) {
-        console.warn(`Segmentation error for participant ${peerId}:`, err);
+        console.warn(`Segmentation error for ${peerId}:`, err);
+        entry.status = 'error';
       }
+    } else if (!this.isReady && !this.initFailed) {
+      entry.status = 'loading';
     }
 
-    /* Render video frame + alpha mask into cutoutCanvas */
     cutoutCtx.save();
     cutoutCtx.clearRect(0, 0, vW, vH);
 
@@ -163,10 +190,8 @@ class SegmentationPipeline {
       cutoutCtx.scale(-1, 1);
     }
 
-    /* Draw original camera video frame */
     cutoutCtx.drawImage(videoElement, 0, 0, vW, vH);
 
-    /* If confidence mask is ready, apply alpha cut out */
     if (entry.hasMask) {
       cutoutCtx.globalCompositeOperation = 'destination-in';
       cutoutCtx.drawImage(entry.maskCanvas, 0, 0, vW, vH);
@@ -175,20 +200,24 @@ class SegmentationPipeline {
 
     cutoutCtx.restore();
 
-    return entry.cutoutCanvas;
+    return {
+      cutout: entry.cutoutCanvas,
+      status: entry.hasMask ? 'ready' : entry.status,
+    };
   }
 
-  /**
-   * Clean up participant cutout entry when a peer leaves.
-   */
   removeParticipant(peerId) {
     this.participantCutouts.delete(peerId);
   }
 
   destroy() {
     this.participantCutouts.clear();
-    if (this.segmenter && typeof this.segmenter.close === 'function') {
-      try { this.segmenter.close(); } catch {}
+    if (this.segmenter?.close) {
+      try {
+        this.segmenter.close();
+      } catch {
+        /* noop */
+      }
       this.segmenter = null;
     }
     this.isReady = false;

@@ -7,29 +7,14 @@ import { StudioRoom } from './StudioRoom.jsx';
 
 /**
  * StudioMode — Top-level orchestrator for the multiplayer Studio feature.
- *
- * Manages the lifecycle:
- *   Entry Modal → Camera Permission → Lobby (host) or Direct Connect (guest) → Studio Room → Capture → Hand off to editor
- *
- * This component is rendered by App.jsx and receives an onCaptureComplete callback
- * to push the resulting group photo into the existing Memorie editing pipeline.
  */
-function StudioModeComponent({
-  isOpen,
-  onClose,
-  onCaptureComplete,
-  flashOn,
-  setFlashOn,
-  mirrorOn,
-  setMirrorOn,
-}) {
-  const [phase, setPhase] = useState('entry'); /* entry | permission | lobby | room | connecting */
+function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
+  const [phase, setPhase] = useState('entry');
   const [permissionError, setPermissionError] = useState('');
   const localStreamRef = useRef(null);
 
   const studio = useStudioRoom();
 
-  /* Request camera/mic permission */
   const requestMedia = useCallback(async () => {
     setPermissionError('');
     try {
@@ -41,52 +26,56 @@ function StudioModeComponent({
       return stream;
     } catch (err) {
       console.warn('Camera permission denied:', err);
-      setPermissionError('Camera permission is required for Studio Mode. Please allow camera access and try again.');
+      setPermissionError(
+        'Camera permission is required for Studio Mode. Please allow camera access and try again.'
+      );
       return null;
     }
   }, []);
 
-  /* CREATE room flow */
-  const handleCreateRoom = useCallback(async (name) => {
-    setPhase('permission');
-    const stream = await requestMedia();
-    if (!stream) {
-      setPhase('entry');
-      return;
-    }
-    studio.setDisplayName(name);
-    const code = await studio.createRoom(stream, name);
-    if (code) {
-      setPhase('lobby');
-    } else {
-      setPhase('entry');
-    }
-  }, [requestMedia, studio]);
+  const handleCreateRoom = useCallback(
+    async (name) => {
+      setPhase('permission');
+      const stream = await requestMedia();
+      if (!stream) {
+        setPhase('entry');
+        return;
+      }
+      studio.setDisplayName(name);
+      const code = await studio.createRoom(stream, name);
+      if (code) {
+        setPhase('lobby');
+      } else {
+        setPhase('entry');
+      }
+    },
+    [requestMedia, studio]
+  );
 
-  /* JOIN room flow */
-  const handleJoinRoom = useCallback(async (code, name) => {
-    setPhase('permission');
-    const stream = await requestMedia();
-    if (!stream) {
-      setPhase('entry');
-      return;
-    }
-    setPhase('connecting');
-    studio.setDisplayName(name);
-    const success = await studio.joinRoom(code, stream, name);
-    if (success) {
-      setPhase('room'); /* Guests skip lobby, go directly to room */
-    } else {
-      setPhase('entry');
-    }
-  }, [requestMedia, studio]);
+  const handleJoinRoom = useCallback(
+    async (code, name) => {
+      setPhase('permission');
+      const stream = await requestMedia();
+      if (!stream) {
+        setPhase('entry');
+        return;
+      }
+      setPhase('connecting');
+      studio.setDisplayName(name);
+      const success = await studio.joinRoom(code, stream, name);
+      if (success) {
+        setPhase('room');
+      } else {
+        setPhase('entry');
+      }
+    },
+    [requestMedia, studio]
+  );
 
-  /* Enter the studio from lobby */
   const handleEnterStudio = useCallback(() => {
     setPhase('room');
   }, []);
 
-  /* Leave studio and clean up */
   const handleLeave = useCallback(() => {
     studio.leaveRoom();
     if (localStreamRef.current) {
@@ -96,25 +85,24 @@ function StudioModeComponent({
     setPhase('entry');
   }, [studio]);
 
-  /* Full close (back to main Memorie) */
   const handleClose = useCallback(() => {
     handleLeave();
     onClose();
   }, [handleLeave, onClose]);
 
-  /* Capture complete — pass photos to existing editor */
-  const handleCaptureComplete = useCallback((photos, shotCount) => {
-    /* Leave room and pass the captured group photos to the parent */
-    studio.leaveRoom();
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
-    }
-    setPhase('entry');
-    onCaptureComplete(photos, shotCount);
-  }, [studio, onCaptureComplete]);
+  const handleCaptureComplete = useCallback(
+    (photos, shotCount) => {
+      studio.leaveRoom();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+      }
+      setPhase('entry');
+      onCaptureComplete(photos, shotCount);
+    },
+    [studio, onCaptureComplete]
+  );
 
-  /* Cleanup on unmount */
   useEffect(() => {
     return () => {
       if (localStreamRef.current) {
@@ -122,6 +110,8 @@ function StudioModeComponent({
       }
     };
   }, []);
+
+  const selfMember = studio.roomState?.members?.find((m) => m.peerId === studio.selfPeerId);
 
   if (!isOpen) return null;
 
@@ -194,7 +184,14 @@ function StudioModeComponent({
               {studio.errorMessage ? (
                 <>
                   <p className="studio-permission-error">{studio.errorMessage}</p>
-                  <button type="button" className="studio-join-btn" onClick={() => { studio.leaveRoom(); setPhase('entry'); }}>
+                  <button
+                    type="button"
+                    className="studio-join-btn"
+                    onClick={() => {
+                      studio.leaveRoom();
+                      setPhase('entry');
+                    }}
+                  >
                     Go Back
                   </button>
                 </>
@@ -223,12 +220,14 @@ function StudioModeComponent({
         >
           <StudioLobby
             roomCode={studio.roomCode}
+            roomState={studio.roomState}
             participants={studio.participants}
             localStream={studio.localStream}
             displayName={studio.displayName}
+            selfPeerId={studio.selfPeerId}
             onEnterStudio={handleEnterStudio}
             onLeave={handleClose}
-            mirrorOn={mirrorOn}
+            mirrorOn={selfMember?.mirror ?? true}
           />
         </motion.div>
       )}
@@ -244,6 +243,8 @@ function StudioModeComponent({
           <StudioRoom
             isHost={studio.isHost}
             roomCode={studio.roomCode}
+            roomState={studio.roomState}
+            selfPeerId={studio.selfPeerId}
             participants={studio.participants}
             localStream={studio.localStream}
             displayName={studio.displayName}
@@ -251,10 +252,9 @@ function StudioModeComponent({
             onData={studio.onData}
             onLeave={handleClose}
             onCaptureComplete={handleCaptureComplete}
-            flashOn={flashOn}
-            setFlashOn={setFlashOn}
-            mirrorOn={mirrorOn}
-            setMirrorOn={setMirrorOn}
+            updateSelfParticipant={studio.updateSelfParticipant}
+            updateHostSettings={studio.updateHostSettings}
+            getStreamForPeer={studio.getStreamForPeer}
           />
         </motion.div>
       )}

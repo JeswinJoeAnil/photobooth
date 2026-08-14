@@ -236,10 +236,6 @@ export default function App() {
         isOpen={isStudioOpen}
         onClose={closeStudio}
         onCaptureComplete={handleStudioCapture}
-        flashOn={flashOn}
-        setFlashOn={setFlashOn}
-        mirrorOn={mirrorOn}
-        setMirrorOn={setMirrorOn}
       />
       <audio
         ref={audioRef}
