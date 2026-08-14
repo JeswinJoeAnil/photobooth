@@ -168,7 +168,7 @@ function StudioRoomComponent({
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream;
     }
-    if (el.paused) el.play().catch(() => {});
+    if (el.paused) el.play().catch(() => { });
     /* Do NOT call setState here — ref callbacks run during React's commit
        phase; any setState call reschedules a render which re-creates ref
        functions, triggering the ref again → infinite loop.

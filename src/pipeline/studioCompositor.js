@@ -61,7 +61,7 @@ export class StudioCompositor {
 
   isVideoValid(vid) {
     if (!vid) return false;
-    if (vid.paused) vid.play().catch(() => {});
+    if (vid.paused) vid.play().catch(() => { });
     return vid.readyState >= 1 || vid.videoWidth > 0;
   }
 
