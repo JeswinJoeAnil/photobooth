@@ -280,6 +280,7 @@ function StudioRoomComponent({
           ...selfMember.transform,
           x: constrained.x,
           baselineY: constrained.baselineY,
+          isManual: true,
         },
       });
     },

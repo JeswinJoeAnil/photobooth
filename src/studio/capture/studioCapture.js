@@ -1,6 +1,7 @@
 /**
  * Studio Capture Coordinator
  * Coordinates synchronized multi-shot photo sequences across remote clients.
+ * Captures high-resolution, flattened group photos tailored for the photo strip layout.
  */
 
 export function computeCaptureTimestamps(
@@ -64,14 +65,14 @@ export async function executeCaptureSequence({
     // 2. Trigger flash effect
     onFlash();
 
-    // 3. Render high-resolution composition snapshot
+    // 3. Render high-resolution composition snapshot matching photostrip frame
     if (compositorEngine) {
       const participants = getSceneParticipants();
       const photoDataUrl = await compositorEngine.captureHD({
         background,
         sceneParticipants: participants,
-        targetWidth: 1920,
-        targetHeight: 1080,
+        targetWidth: 1600,
+        targetHeight: 1200,
       });
 
       if (photoDataUrl) {
@@ -79,7 +80,7 @@ export async function executeCaptureSequence({
       }
     }
 
-    // 4. Brief breathing room before next shot in multi-shot session
+    // 4. Breathing room before next shot in multi-shot session
     if (shot < totalShots && !isCancelled()) {
       await sleepUntil(captureAt + 1200);
     }

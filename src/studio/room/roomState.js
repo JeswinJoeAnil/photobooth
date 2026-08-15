@@ -85,7 +85,8 @@ export function activeMembers(members) {
 }
 
 /**
- * Ensures all active members have stable normalized transforms if not customized.
+ * Ensures all active members have stable normalized transforms.
+ * Preserves manual transforms if the user dragged themselves (isManual: true).
  */
 export function applyDefaultTransforms(members) {
   if (!Array.isArray(members)) return [];
@@ -97,9 +98,13 @@ export function applyDefaultTransforms(members) {
     const joinIndex = active.findIndex((a) => a.peerId === m.peerId);
     if (joinIndex < 0) return m;
 
+    if (m.transform && m.transform.isManual) {
+      return m;
+    }
+
     return {
       ...m,
-      transform: m.transform ?? getDefaultParticipantTransform(joinIndex, total),
+      transform: getDefaultParticipantTransform(joinIndex, total),
     };
   });
 }

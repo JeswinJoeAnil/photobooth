@@ -6,8 +6,9 @@
 
 import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
 import {
-  applyAlphaMaskToVideo,
   buildSmoothMaskImageData,
+  cropPersonCutout,
+  extractPersonBoundingBox,
 } from './maskProcessor.js';
 
 class SegmentationManager {
@@ -82,8 +83,8 @@ class SegmentationManager {
   _getParticipantEntry(peerId) {
     if (!this.participantState.has(peerId)) {
       const cutoutCanvas = document.createElement('canvas');
-      cutoutCanvas.width = 640;
-      cutoutCanvas.height = 480;
+      cutoutCanvas.width = 400;
+      cutoutCanvas.height = 500;
 
       const maskCanvas = document.createElement('canvas');
       maskCanvas.width = 256;
@@ -92,6 +93,8 @@ class SegmentationManager {
       this.participantState.set(peerId, {
         cutoutCanvas,
         maskCanvas,
+        prevBounds: null,
+        smoothedBounds: { normX: 0.15, normY: 0.05, normWidth: 0.70, normHeight: 0.90, detected: false },
         prevMaskData: null,
         lastTimestampMs: 0,
         lastSegmentTime: 0,
@@ -113,14 +116,14 @@ class SegmentationManager {
 
   /**
    * Processes a live video frame for a participant.
-   * Runs local AI segmentation, smooths masks, and produces a transparent cutout
-   * showing exactly what the camera sees without dynamic resize jitter.
+   * Runs local AI segmentation, extracts smoothed bounding box, and creates a transparent person cutout.
    */
   processParticipant(peerId, videoElement, totalActiveCount = 1) {
     if (!videoElement || (videoElement.readyState < 1 && videoElement.videoWidth === 0)) {
       const fallbackEntry = this.participantState.get(peerId);
       return {
         cutout: fallbackEntry?.cutoutCanvas || null,
+        bounds: fallbackEntry?.smoothedBounds || null,
         status: 'loading',
       };
     }
@@ -162,6 +165,16 @@ class SegmentationManager {
               entry.prevMaskData
             );
             maskCtx.putImageData(imgData, 0, 0);
+
+            // Extract stabilized bounding box of the visible person
+            entry.smoothedBounds = extractPersonBoundingBox(
+              floatData,
+              maskW,
+              maskH,
+              entry.prevBounds
+            );
+            entry.prevBounds = entry.smoothedBounds;
+
             entry.hasMask = true;
             entry.lastSegmentTime = now;
             entry.status = 'ready';
@@ -178,72 +191,25 @@ class SegmentationManager {
       }
     }
 
-    const cutout = applyAlphaMaskToVideo(
+    const cutout = cropPersonCutout(
       videoElement,
       entry.maskCanvas,
+      entry.smoothedBounds,
       entry.cutoutCanvas
     );
 
     return {
       cutout: cutout || entry.cutoutCanvas,
+      bounds: entry.smoothedBounds,
       status: entry.hasMask ? 'ready' : entry.status,
     };
   }
 
   /**
-   * Runs a high-quality segmentation pass for snapshot capture.
+   * Synchronous capture pass using the latest high-quality mask.
    */
-  async processHighQuality(peerId, videoElement) {
-    if (!videoElement || videoElement.readyState < 1) {
-      return this.processParticipant(peerId, videoElement, 1);
-    }
-
-    const entry = this._getParticipantEntry(peerId);
-
-    if (this.isReady && this.segmenter) {
-      try {
-        this.globalTimestamp += 1;
-        const result = this.segmenter.segmentForVideo(videoElement, this.globalTimestamp);
-
-        if (result?.confidenceMasks?.length > 0) {
-          const mask = result.confidenceMasks[0];
-          const maskW = mask.width || 256;
-          const maskH = mask.height || 256;
-          const floatData = mask.getAsFloat32Array();
-
-          if (entry.maskCanvas.width !== maskW || entry.maskCanvas.height !== maskH) {
-            entry.maskCanvas.width = maskW;
-            entry.maskCanvas.height = maskH;
-          }
-
-          const maskCtx = entry.maskCanvas.getContext('2d');
-          if (maskCtx) {
-            const imgData = buildSmoothMaskImageData(floatData, maskW, maskH, null);
-            maskCtx.putImageData(imgData, 0, 0);
-            entry.hasMask = true;
-          }
-
-          for (let i = 0; i < result.confidenceMasks.length; i++) {
-            if (result.confidenceMasks[i]?.close) {
-              result.confidenceMasks[i].close();
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`HQ Segmentation error for ${peerId}:`, err);
-      }
-    }
-
-    const cutout = applyAlphaMaskToVideo(
-      videoElement,
-      entry.maskCanvas,
-      entry.cutoutCanvas
-    );
-
-    return {
-      cutout: cutout || entry.cutoutCanvas,
-      status: entry.hasMask ? 'ready' : entry.status,
-    };
+  processHighQuality(peerId, videoElement) {
+    return this.processParticipant(peerId, videoElement, 1);
   }
 
   removeParticipant(peerId) {

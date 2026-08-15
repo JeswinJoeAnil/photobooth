@@ -1,12 +1,13 @@
 /**
  * Studio Compositor
  * High-performance Canvas 2D scene renderer for the shared virtual studio.
+ * Single source of truth for both live preview and high-resolution capture.
  *
  * Layer Hierarchy:
- * 1. Shared Background & Floor Environment
+ * 1. Shared Studio Background & Floor Environment
  * 2. Floor Contact Shadows (Grounded at feet baseline)
  * 3. Transparent Participant Cutouts (sorted by zIndex, per-participant mirror)
- * 4. Framing & Studio Overlays
+ * 4. Zero raw video fallbacks, zero UI artifacts in final capture
  */
 
 import { drawStudioBackground } from './backgroundRenderer.js';
@@ -42,16 +43,16 @@ export class StudioCompositor {
    * Draws a soft, elliptical contact shadow under the participant's feet.
    */
   drawContactShadow(ctx, centerX, floorY, personWidth) {
-    const shadowW = Math.max(80, personWidth * 0.65);
-    const shadowH = shadowW * 0.20;
+    const shadowW = Math.max(70, personWidth * 0.70);
+    const shadowH = shadowW * 0.22;
 
     ctx.save();
     ctx.translate(centerX, floorY);
     ctx.scale(1, shadowH / shadowW);
 
     const radGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, shadowW / 2);
-    radGrad.addColorStop(0, 'rgba(0, 0, 0, 0.38)');
-    radGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.16)');
+    radGrad.addColorStop(0, 'rgba(0, 0, 0, 0.40)');
+    radGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.18)');
     radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     ctx.fillStyle = radGrad;
@@ -74,8 +75,8 @@ export class StudioCompositor {
     ctx.ellipse(
       drawX + width / 2,
       drawY + height * 0.22,
-      width * 0.16,
-      width * 0.16,
+      width * 0.22,
+      width * 0.22,
       0,
       0,
       Math.PI * 2
@@ -85,9 +86,9 @@ export class StudioCompositor {
     // Torso / Body
     ctx.beginPath();
     ctx.roundRect(
-      drawX + width * 0.28,
+      drawX + width * 0.22,
       drawY + height * 0.32,
-      width * 0.44,
+      width * 0.56,
       height * 0.55,
       12
     );
@@ -115,22 +116,22 @@ export class StudioCompositor {
       const hasVideo = this.isVideoPlayable(part.video);
 
       let cutout = null;
+      let bounds = { normX: 0.15, normY: 0.05, normWidth: 0.70, normHeight: 0.90, detected: false };
       let segStatus = 'loading';
 
       if (hasVideo) {
-        if (isHQ) {
-          const res = segmentationManager.processHighQuality(part.peerId, part.video);
-          cutout = res.cutout;
-          segStatus = res.status;
-        } else {
-          const res = segmentationManager.processParticipant(part.peerId, part.video, count);
-          cutout = res.cutout;
-          segStatus = res.status;
-        }
+        const res = isHQ
+          ? segmentationManager.processHighQuality(part.peerId, part.video)
+          : segmentationManager.processParticipant(part.peerId, part.video, count);
+
+        cutout = res.cutout;
+        bounds = res.bounds || bounds;
+        segStatus = res.status;
       }
 
       const metrics = normalizePersonCutout({
         cutoutCanvas: cutout,
+        bounds,
         transform,
         sceneWidth: sceneW,
         sceneHeight: sceneH,
@@ -221,6 +222,7 @@ export class StudioCompositor {
 
   /**
    * Captures a high-resolution snapshot for the final photo strip.
+   * NEVER renders raw video frames, UI elements, or debug overlays.
    */
   async captureHD({ background, sceneParticipants, targetWidth = 1920, targetHeight = 1080 }) {
     const snapCanvas = document.createElement('canvas');
@@ -229,7 +231,7 @@ export class StudioCompositor {
     const ctx = snapCanvas.getContext('2d');
     if (!ctx) return null;
 
-    // Draw background on HD canvas
+    // Draw shared studio background on HD canvas
     drawStudioBackground(ctx, background, targetWidth, targetHeight);
 
     const activeCount = sceneParticipants.length;
@@ -251,7 +253,7 @@ export class StudioCompositor {
       );
     });
 
-    // Draw HD participant cutouts
+    // Draw HD participant cutouts (transparent person only)
     layers.forEach((layer) => {
       const { drawX, drawY, drawWidth, drawHeight, centerX } = layer.metrics;
 
@@ -265,10 +267,6 @@ export class StudioCompositor {
 
       if (layer.cutout) {
         ctx.drawImage(layer.cutout, drawX, drawY, drawWidth, drawHeight);
-      } else if (layer.hasVideo) {
-        ctx.drawImage(layer.video, drawX, drawY, drawWidth, drawHeight);
-      } else {
-        this.drawLoadingSilhouette(ctx, drawX, drawY, drawWidth, drawHeight);
       }
 
       ctx.restore();

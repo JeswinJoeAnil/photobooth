@@ -1,20 +1,22 @@
 /**
  * Studio Person Normalizer
- * Positions participant camera streams on the studio floor with stable, natural proportions,
- * without active auto-resizing or dynamic jumping when moving.
+ * Normalizes visible person dimensions mathematically based on detected bounding boxes,
+ * ensuring all participants appear proportionally sized, evenly spaced, and anchored to a common floor.
  */
 
 /**
- * Calculates stable layout metrics for a participant's camera cutout.
+ * Calculates normalized layout metrics for a cropped person cutout.
  *
- * @param {HTMLCanvasElement} cutoutCanvas - The transparent cutout canvas.
+ * @param {HTMLCanvasElement} cutoutCanvas - The cropped person canvas in person space.
+ * @param {Object} bounds - Bounding box metrics { normWidth, normHeight, detected }.
  * @param {Object} transform - Participant transform { x, baselineY, scale, zIndex }.
- * @param {number} sceneWidth - Logical scene width (e.g. 1280).
- * @param {number} sceneHeight - Logical scene height (e.g. 720).
+ * @param {number} sceneWidth - Logical scene width (e.g. 1280 or 1920).
+ * @param {number} sceneHeight - Logical scene height (e.g. 720 or 1080).
  * @param {number} totalCount - Total number of active participants.
  */
 export function normalizePersonCutout({
   cutoutCanvas,
+  bounds,
   transform,
   sceneWidth = 1280,
   sceneHeight = 720,
@@ -23,35 +25,36 @@ export function normalizePersonCutout({
   const count = Math.min(4, Math.max(1, totalCount || 1));
   const userScale = transform?.scale ?? 1.0;
 
-  // Natural camera aspect ratio (e.g. 16:9 or 4:3)
-  const vW = cutoutCanvas?.width || 640;
-  const vH = cutoutCanvas?.height || 480;
-  const aspectRatio = vH > 0 ? vW / vH : 16 / 9;
+  // Actual pixel dimensions of the cropped person cutout
+  const cutoutW = cutoutCanvas?.width || 300;
+  const cutoutH = cutoutCanvas?.height || 400;
+  const personRatio = cutoutH > 0 ? cutoutW / cutoutH : 0.65;
 
-  // Stable scene height proportion per slot
-  let heightRatio = 0.88;
-  if (count === 2) heightRatio = 0.80;
-  else if (count === 3) heightRatio = 0.74;
-  else if (count === 4) heightRatio = 0.70;
+  // Target visible person height in relation to studio scene height (with head safe area)
+  let heightRatio = 0.74;
+  if (count === 2) heightRatio = 0.70;
+  else if (count === 3) heightRatio = 0.66;
+  else if (count === 4) heightRatio = 0.62;
 
   const targetHeight = sceneHeight * heightRatio * userScale;
-  const targetWidth = targetHeight * aspectRatio;
+  const drawHeight = Math.round(targetHeight);
+  const drawWidth = Math.round(targetHeight * personRatio);
 
-  // Position horizontally around centerX
+  // Position person horizontally around centerX
   const posX = transform?.x ?? 0.5;
   const centerX = Math.round(posX * sceneWidth);
-  const drawX = Math.round(centerX - targetWidth / 2);
+  const drawX = Math.round(centerX - drawWidth / 2);
 
-  // Anchor feet/bottom of frame to the studio floor baseline
-  const baselineY = transform?.baselineY ?? 0.90;
+  // Anchor feet/bottom of person strictly to the baseline floor plane
+  const baselineY = transform?.baselineY ?? 0.88;
   const floorY = Math.round(baselineY * sceneHeight);
-  const drawY = Math.round(floorY - targetHeight);
+  const drawY = Math.round(floorY - drawHeight);
 
   return {
     drawX,
     drawY,
-    drawWidth: Math.round(targetWidth),
-    drawHeight: Math.round(targetHeight),
+    drawWidth,
+    drawHeight,
     centerX,
     floorY,
     zIndex: transform?.zIndex ?? 1,
