@@ -1,19 +1,20 @@
 /**
  * Studio Mask Processor
  * High-performance bounding-box extraction, edge smoothing, and person cutout cropping.
- * Produces clean, transparent person cutouts in person space without raw webcam backgrounds.
+ * Produces clean, transparent person cutouts in person space without raw webcam backgrounds or clipping.
  */
 
 /**
  * Scans MediaPipe float confidence mask to locate the tight bounding box of the visible person.
- * Applies EMA temporal smoothing against previous bounds to prevent frame-to-frame jitter.
+ * Uses asymmetric temporal smoothing: instant expansion to capture fast arm/body movements,
+ * smooth contraction to eliminate resting jitter.
  */
 export function extractPersonBoundingBox(
   floatMaskData,
   maskWidth,
   maskHeight,
   prevBounds = null,
-  threshold = 0.40,
+  threshold = 0.35,
   paddingRatio = 0.08
 ) {
   let minX = maskWidth;
@@ -36,14 +37,14 @@ export function extractPersonBoundingBox(
   }
 
   // Fallback if no person is detected
-  if (count < 30 || minX > maxX || minY > maxY) {
+  if (count < 20 || minX > maxX || minY > maxY) {
     if (prevBounds && prevBounds.detected) {
       return prevBounds;
     }
     return {
-      normX: 0.20,
+      normX: 0.10,
       normY: 0.05,
-      normWidth: 0.60,
+      normWidth: 0.80,
       normHeight: 0.90,
       detected: false,
     };
@@ -65,13 +66,23 @@ export function extractPersonBoundingBox(
   const rawNormW = Math.max(0.15, (finalMaxX - finalMinX) / maskWidth);
   const rawNormH = Math.max(0.20, (finalMaxY - finalMinY) / maskHeight);
 
-  // Apply EMA smoothing to eliminate micro-jitter when standing or breathing
   if (prevBounds && prevBounds.detected) {
-    const smoothFactor = 0.20; // 20% new, 80% history for rock-solid stability
-    const normX = prevBounds.normX * (1 - smoothFactor) + rawNormX * smoothFactor;
-    const normY = prevBounds.normY * (1 - smoothFactor) + rawNormY * smoothFactor;
-    const normWidth = prevBounds.normWidth * (1 - smoothFactor) + rawNormW * smoothFactor;
-    const normHeight = prevBounds.normHeight * (1 - smoothFactor) + rawNormH * smoothFactor;
+    // Fast expansion (50% or instant) for quick arm raises and leans
+    // Smooth contraction (25%) for stability
+    const rawRight = rawNormX + rawNormW;
+    const prevRight = prevBounds.normX + prevBounds.normWidth;
+    const rawBottom = rawNormY + rawNormH;
+    const prevBottom = prevBounds.normY + prevBounds.normHeight;
+
+    const smoothFactorX = rawNormX < prevBounds.normX ? 0.65 : 0.25;
+    const smoothFactorY = rawNormY < prevBounds.normY ? 0.65 : 0.25;
+    const smoothFactorW = rawRight > prevRight ? 0.65 : 0.25;
+    const smoothFactorH = rawBottom > prevBottom ? 0.65 : 0.25;
+
+    const normX = prevBounds.normX * (1 - smoothFactorX) + rawNormX * smoothFactorX;
+    const normY = prevBounds.normY * (1 - smoothFactorY) + rawNormY * smoothFactorY;
+    const normWidth = prevBounds.normWidth * (1 - smoothFactorW) + rawNormW * smoothFactorW;
+    const normHeight = prevBounds.normHeight * (1 - smoothFactorH) + rawNormH * smoothFactorH;
 
     return {
       normX,
@@ -108,6 +119,9 @@ export function buildSmoothMaskImageData(
   // Smoothing weights: 30% history, 70% current frame
   const useTemporal = prevMaskData && prevMaskData.length === totalPixels;
 
+  const lowThresh = 0.35;
+  const highThresh = 0.75;
+
   for (let i = 0; i < totalPixels; i++) {
     let conf = floatMaskData[i];
 
@@ -115,13 +129,6 @@ export function buildSmoothMaskImageData(
       conf = prevMaskData[i] * 0.30 + conf * 0.70;
       prevMaskData[i] = conf;
     }
-
-    const col = i % maskWidth;
-    const normX = col / maskWidth;
-
-    // Soft thresholding for natural contours
-    const lowThresh = normX < 0.05 || normX > 0.95 ? 0.58 : 0.40;
-    const highThresh = 0.80;
 
     let alpha = 0;
     if (conf <= lowThresh) {
@@ -146,7 +153,7 @@ export function buildSmoothMaskImageData(
 
 /**
  * Crops and masks the video source to produce a clean, transparent person cutout in PERSON SPACE.
- * Strips away all original background and empty margins.
+ * Correctly translates between intrinsic video coordinates and mask coordinates.
  */
 export function cropPersonCutout(
   videoElement,
@@ -158,37 +165,46 @@ export function cropPersonCutout(
   const vH = videoElement.videoHeight || 480;
 
   const safeBounds = bounds || {
-    normX: 0.15,
+    normX: 0.10,
     normY: 0.05,
-    normWidth: 0.70,
+    normWidth: 0.80,
     normHeight: 0.90,
   };
 
-  const cropX = Math.max(0, Math.round(safeBounds.normX * vW));
-  const cropY = Math.max(0, Math.round(safeBounds.normY * vH));
-  const cropW = Math.min(vW - cropX, Math.max(10, Math.round(safeBounds.normWidth * vW)));
-  const cropH = Math.min(vH - cropY, Math.max(10, Math.round(safeBounds.normHeight * vH)));
+  // Video source crop coordinates (in video pixel space)
+  const vCropX = Math.max(0, Math.round(safeBounds.normX * vW));
+  const vCropY = Math.max(0, Math.round(safeBounds.normY * vH));
+  const vCropW = Math.min(vW - vCropX, Math.max(10, Math.round(safeBounds.normWidth * vW)));
+  const vCropH = Math.min(vH - vCropY, Math.max(10, Math.round(safeBounds.normHeight * vH)));
 
-  if (outputCanvas.width !== cropW || outputCanvas.height !== cropH) {
-    outputCanvas.width = cropW;
-    outputCanvas.height = cropH;
+  // Mask source crop coordinates (in mask canvas pixel space)
+  const mW = maskCanvas.width || 256;
+  const mH = maskCanvas.height || 256;
+  const mCropX = Math.max(0, Math.round(safeBounds.normX * mW));
+  const mCropY = Math.max(0, Math.round(safeBounds.normY * mH));
+  const mCropW = Math.min(mW - mCropX, Math.max(1, Math.round(safeBounds.normWidth * mW)));
+  const mCropH = Math.min(mH - mCropY, Math.max(1, Math.round(safeBounds.normHeight * mH)));
+
+  if (outputCanvas.width !== vCropW || outputCanvas.height !== vCropH) {
+    outputCanvas.width = vCropW;
+    outputCanvas.height = vCropH;
   }
 
   const ctx = outputCanvas.getContext('2d');
   if (!ctx) return null;
 
   ctx.save();
-  ctx.clearRect(0, 0, cropW, cropH);
+  ctx.clearRect(0, 0, vCropW, vCropH);
 
   // 1. Draw cropped region of the raw camera frame
-  ctx.drawImage(videoElement, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  ctx.drawImage(videoElement, vCropX, vCropY, vCropW, vCropH, 0, 0, vCropW, vCropH);
 
   // 2. Apply destination-in alpha mask using the matching cropped region of the mask
   ctx.globalCompositeOperation = 'destination-in';
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  ctx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  ctx.drawImage(maskCanvas, mCropX, mCropY, mCropW, mCropH, 0, 0, vCropW, vCropH);
 
   ctx.restore();
   return outputCanvas;
