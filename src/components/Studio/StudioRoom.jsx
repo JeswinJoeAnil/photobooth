@@ -14,10 +14,20 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
-import { StudioCompositor } from '../../pipeline/studioCompositor.js';
-import { segmentationPipeline } from '../../utils/segmentationPipeline.js';
+import { StudioCompositor } from '../../studio/compositor/StudioCompositor.js';
+import { segmentationManager } from '../../studio/segmentation/segmentationManager.js';
 import { STUDIO_BACKGROUNDS } from '../../constants/studioAssets.js';
-import { activeMembers, sortMembersByJoinOrder } from '../../utils/studioRoomState.js';
+import { activeMembers, sortMembersByJoinOrder } from '../../studio/room/roomState.js';
+import { constrainParticipantPosition } from '../../studio/compositor/participantLayout.js';
+import {
+  computeCaptureTimestamps,
+  executeCaptureSequence,
+} from '../../studio/capture/studioCapture.js';
+import {
+  createFlashFireMessage,
+  createShutterMessage,
+  PROTOCOL_TYPES,
+} from '../../studio/room/roomProtocol.js';
 
 const RESOLUTION_OPTIONS = [
   { id: '1080p', label: '1080p (Full HD)', desc: 'Highest photo detail & crisp resolution', width: 1920, height: 1080 },
@@ -43,9 +53,6 @@ function StudioRoomComponent({
   updateHostSettings,
   getStreamForPeer,
 }) {
-  /* customBgUrl is now authoritative from roomState (host broadcasts it).
-   * Local state only used as an optimistic preview on the host before the
-   * first ROOM_STATE_SYNC round-trip completes. */
   const [localCustomBgUrl, setLocalCustomBgUrl] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [flashFire, setFlashFire] = useState(false);
@@ -61,13 +68,11 @@ function StudioRoomComponent({
   const compositorEngineRef = useRef(null);
   const videoElementsRef = useRef(new Map());
   const fileInputRef = useRef(null);
-  const controlsRef = useRef(null);
-  const shutterBtnRef = useRef(null);
   const animFrameRef = useRef(null);
   const sceneParticipantsRef = useRef([]);
   const dragRef = useRef(null);
+  const isCancelledRef = useRef(false);
 
-  /* Canonical background from room state — updated for all clients via ROOM_STATE_SYNC */
   const customBgUrl = roomState?.customBgUrl ?? localCustomBgUrl ?? null;
 
   const background = useMemo(() => {
@@ -111,7 +116,10 @@ function StudioRoomComponent({
   }, [sceneParticipants]);
 
   useEffect(() => {
-    segmentationPipeline.init();
+    segmentationManager.init();
+    return () => {
+      isCancelledRef.current = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -127,6 +135,7 @@ function StudioRoomComponent({
     }
   }, []);
 
+  // Single requestAnimationFrame loop for the studio scene
   useEffect(() => {
     const activeBg = customBgUrl
       ? { solidColor: '#000', customImageUrl: customBgUrl }
@@ -151,13 +160,14 @@ function StudioRoomComponent({
     };
   }, [background, customBgUrl]);
 
+  // Clean up detached participant videos
   useEffect(() => {
     const activePeerIds = new Set(sortedMembers.map((m) => m.peerId));
     videoElementsRef.current.forEach((video, peerId) => {
       if (!activePeerIds.has(peerId)) {
         if (video) video.srcObject = null;
         videoElementsRef.current.delete(peerId);
-        segmentationPipeline.removeParticipant(peerId);
+        segmentationManager.removeParticipant(peerId);
       }
     });
   }, [sortedMembers]);
@@ -168,12 +178,8 @@ function StudioRoomComponent({
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream;
     }
-    if (el.paused) el.play().catch(() => { });
-    /* Do NOT call setState here — ref callbacks run during React's commit
-       phase; any setState call reschedules a render which re-creates ref
-       functions, triggering the ref again → infinite loop.
-       Instead, patch sceneParticipantsRef directly so the rAF compositor
-       loop picks up the new video element on the very next frame. */
+    if (el.paused) el.play().catch(() => {});
+
     sceneParticipantsRef.current = sceneParticipantsRef.current.map((p) =>
       p.peerId === peerId ? { ...p, video: el } : p
     );
@@ -188,8 +194,6 @@ function StudioRoomComponent({
       if (p.stream) sources.push({ peerId: p.peerId, stream: p.stream });
     });
     return sources;
-    /* streamTick intentionally removed — participants already re-derives
-       whenever a stream arrives (via setStreamVersion in useStudioRoom). */
   }, [localStream, selfPeerId, participants]);
 
   const handleResolutionChange = useCallback(
@@ -215,7 +219,6 @@ function StudioRoomComponent({
       setLocalCustomBgUrl(null);
       setShowBgPicker(false);
       if (isHost) {
-        /* Clear custom URL and switch to preset — synced to all clients */
         updateHostSettings({ backgroundId: bg.id, customBgUrl: null });
       }
     },
@@ -226,12 +229,11 @@ function StudioRoomComponent({
     const file = e.target.files?.[0];
     if (!file || !isHost) return;
 
-    /* Read as data URL so we can broadcast it via ROOM_STATE_SYNC */
     const reader = new FileReader();
     reader.onload = (evt) => {
       const dataUrl = evt.target?.result;
       if (!dataUrl) return;
-      setLocalCustomBgUrl(dataUrl); /* optimistic local preview */
+      setLocalCustomBgUrl(dataUrl);
       setShowBgPicker(false);
       updateHostSettings({ customBgUrl: dataUrl, backgroundId: null });
     };
@@ -246,6 +248,7 @@ function StudioRoomComponent({
     updateSelfParticipant({ flash: !flashOn });
   }, [flashOn, updateSelfParticipant]);
 
+  // Pointer dragging to reposition participant in normalized space
   const handlePointerDown = useCallback(
     (e) => {
       if (!selfMember?.transform) return;
@@ -253,7 +256,7 @@ function StudioRoomComponent({
         startX: e.clientX,
         startY: e.clientY,
         originX: selfMember.transform.x,
-        originY: selfMember.transform.y,
+        originBaselineY: selfMember.transform.baselineY ?? 0.88,
       };
     },
     [selfMember]
@@ -267,11 +270,16 @@ function StudioRoomComponent({
       const rect = canvas.getBoundingClientRect();
       const dx = (e.clientX - dragRef.current.startX) / rect.width;
       const dy = (e.clientY - dragRef.current.startY) / rect.height;
+
+      const rawX = dragRef.current.originX + dx;
+      const rawBaselineY = dragRef.current.originBaselineY + dy;
+      const constrained = constrainParticipantPosition(rawX, rawBaselineY);
+
       updateSelfParticipant({
         transform: {
           ...selfMember.transform,
-          x: Math.min(0.95, Math.max(0.05, dragRef.current.originX + dx)),
-          y: Math.min(0.85, Math.max(0.35, dragRef.current.originY + dy)),
+          x: constrained.x,
+          baselineY: constrained.baselineY,
         },
       });
     },
@@ -291,121 +299,82 @@ function StudioRoomComponent({
     };
   }, [handlePointerMove, handlePointerUp]);
 
-  const waitUntil = (targetMs) =>
-    new Promise((resolve) => {
-      const delay = Math.max(0, targetMs - Date.now());
-      setTimeout(resolve, delay);
-    });
-
-  const runSequentialCapture = useCallback(
-    /**
-     * @param {number}   totalShots
-     * @param {number}   timerSec
-     * @param {number[]} captureTimestamps — pre-computed absolute ms timestamps for
-     *   each shot, shared by all clients via the SHUTTER message so every device
-     *   captures at the same wall-clock moment regardless of local drift.
-     */
-    async (totalShots = 4, timerSec = 3, captureTimestamps = []) => {
+  // Synchronized multi-shot capture execution
+  const runCapture = useCallback(
+    async (totalShots, timerSec, captureTimestamps) => {
       if (shooting) return;
       setShooting(true);
 
-      const capturedList = [];
       const activeBg = customBgUrl
         ? { solidColor: '#000', customImageUrl: customBgUrl }
         : background;
 
-      for (let shot = 1; shot <= totalShots; shot++) {
-        setShotIndex(shot);
-
-        /* Use the pre-shared timestamp for this shot, falling back to a
-           locally computed one for robustness if timestamps array is short. */
-        const captureAt =
-          captureTimestamps[shot - 1] ??
-          Date.now() + (timerSec > 0 ? timerSec * 1000 : 0) + (shot - 1) * 1600;
-
-        if (timerSec > 0) {
-          const countdownStart = captureAt - timerSec * 1000;
-          await waitUntil(countdownStart);
-          for (let sec = timerSec; sec > 0; sec--) {
-            setCountdown(sec);
-            await waitUntil(captureAt - sec * 1000);
+      const photos = await executeCaptureSequence({
+        totalShots,
+        timerSec,
+        captureTimestamps,
+        compositorEngine: compositorEngineRef.current,
+        background: activeBg,
+        getSceneParticipants: () => sceneParticipantsRef.current,
+        onCountdown: setCountdown,
+        onFlash: () => {
+          if (flashOn) {
+            setFlashFire(true);
+            setTimeout(() => setFlashFire(false), 450);
           }
-          setCountdown(null);
-        } else {
-          await waitUntil(captureAt);
-        }
-
-        if (flashOn) {
-          setFlashFire(true);
-          setTimeout(() => setFlashFire(false), 480);
-        }
-
-        if (compositorEngineRef.current) {
-          const hdDataUrl = await compositorEngineRef.current.captureHD({
-            background: activeBg,
-            sceneParticipants: sceneParticipantsRef.current,
-          });
-          if (hdDataUrl) capturedList.push(hdDataUrl);
-        }
-
-        if (shot < totalShots) {
-          /* Wait until 1600ms after this shot before starting next countdown */
-          await waitUntil(captureAt + 1600);
-        }
-      }
+        },
+        onShotIndex: setShotIndex,
+        isCancelled: () => isCancelledRef.current,
+      });
 
       setShooting(false);
       setShotIndex(null);
-      onCaptureComplete(capturedList, totalShots);
+
+      if (photos.length > 0) {
+        onCaptureComplete(photos, totalShots);
+      }
     },
-    [shooting, flashOn, onCaptureComplete, customBgUrl, background]
+    [shooting, customBgUrl, background, flashOn, onCaptureComplete]
   );
 
   useEffect(() => {
-    const hostId = `memorie-studio-${roomCode}`;
-
-    const unsubscribe = onData((data, fromPeerId) => {
+    const unsubscribe = onData((data) => {
       if (!data?.type) return;
 
-      if (data.type === 'SHUTTER' && fromPeerId === hostId) {
-        /* data.captureTimestamps is the canonical array of wall-clock ms for
-           each shot, computed once by the host and shared to all clients. */
-        runSequentialCapture(data.totalShots, data.timerSec, data.captureTimestamps ?? []);
+      if (data.type === PROTOCOL_TYPES.SHUTTER) {
+        runCapture(data.totalShots, data.timerSec, data.captureTimestamps || []);
       }
 
-      if (data.type === 'FLASH_FIRE' && flashOn) {
+      if (data.type === PROTOCOL_TYPES.FLASH_FIRE && flashOn) {
         setFlashFire(true);
-        setTimeout(() => setFlashFire(false), 480);
+        setTimeout(() => setFlashFire(false), 450);
       }
     });
 
     return unsubscribe;
-  }, [roomCode, onData, runSequentialCapture, flashOn]);
+  }, [onData, runCapture, flashOn]);
 
   const handleShutter = useCallback(() => {
+    if (!isHost || shooting) return;
+
     const timerSec = timer;
     const totalShots = shotCount;
-    const now = Date.now();
-    const firstCaptureAt = now + (timerSec > 0 ? timerSec * 1000 : 0);
+    const captureTimestamps = computeCaptureTimestamps(totalShots, timerSec);
 
-    /* Build the full schedule once so every client locks to identical timestamps */
-    const captureTimestamps = Array.from(
-      { length: totalShots },
-      (_, i) => firstCaptureAt + i * 1600
-    );
-
-    if (isHost) {
-      broadcast({
-        type: 'SHUTTER',
+    broadcast(
+      createShutterMessage({
         totalShots,
         timerSec,
         captureTimestamps,
-      });
-      if (flashOn) broadcast({ type: 'FLASH_FIRE' });
+      })
+    );
+
+    if (flashOn) {
+      broadcast(createFlashFireMessage());
     }
 
-    runSequentialCapture(totalShots, timerSec, captureTimestamps);
-  }, [isHost, timer, shotCount, broadcast, flashOn, runSequentialCapture]);
+    runCapture(totalShots, timerSec, captureTimestamps);
+  }, [isHost, shooting, timer, shotCount, broadcast, flashOn, runCapture]);
 
   const cycleTimer = useCallback(() => {
     if (!isHost || shooting) return;
@@ -422,7 +391,7 @@ function StudioRoomComponent({
   }, [isHost, shooting, shotCount, updateHostSettings]);
 
   const segReadyCount = sceneParticipants.filter(
-    (p) => segmentationPipeline.getStatus(p.peerId) === 'ready'
+    (p) => segmentationManager.getStatus(p.peerId) === 'ready'
   ).length;
   const streamCount = sceneParticipants.filter((p) => p.video?.readyState >= 1).length;
   const expectedRemotes = sortedMembers.length - 1;
@@ -435,6 +404,7 @@ function StudioRoomComponent({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
+      {/* Stable offscreen video container */}
       <div
         style={{
           position: 'fixed',
@@ -470,6 +440,7 @@ function StudioRoomComponent({
         onChange={handleCustomImageUpload}
       />
 
+      {/* Top Bar */}
       <div className="studio-room-topbar">
         <button type="button" className="studio-room-back" onClick={onLeave} disabled={shooting}>
           <ArrowLeft size={18} />
@@ -493,6 +464,7 @@ function StudioRoomComponent({
         </div>
       </div>
 
+      {/* Development Diagnostics */}
       {showDebug && SHOW_DEBUG && (
         <div
           style={{
@@ -500,25 +472,25 @@ function StudioRoomComponent({
             top: 56,
             right: 12,
             zIndex: 50,
-            background: 'rgba(0,0,0,0.75)',
-            color: '#0f0',
+            background: 'rgba(0,0,0,0.85)',
+            color: '#00ffcc',
             fontFamily: 'monospace',
             fontSize: 11,
-            padding: '8px 10px',
-            borderRadius: 6,
-            lineHeight: 1.5,
+            padding: '8px 12px',
+            borderRadius: 8,
+            lineHeight: 1.6,
             pointerEvents: 'none',
+            border: '1px solid rgba(0,255,204,0.3)',
           }}
         >
           <div>ROOM: {roomCode}</div>
           <div>SELF: {selfPeerId?.slice(-8)}</div>
           <div>ROLE: {isHost ? 'HOST' : 'GUEST'}</div>
-          <div>MEMBERS: {sortedMembers.length}</div>
+          <div>MEMBERS: {sortedMembers.length} / 4</div>
           <div>PEERS: {connectedPeers}/{expectedRemotes}</div>
           <div>STREAMS: {streamCount}/{sortedMembers.length}</div>
           <div>SEGMENTED: {segReadyCount}/{sortedMembers.length}</div>
-          <div>COMPOSITOR: {sceneParticipants.length}</div>
-          <div>STATE v{roomState?.version ?? 0}</div>
+          <div>STATE: v{roomState?.version ?? 0}</div>
         </div>
       )}
 
@@ -532,6 +504,7 @@ function StudioRoomComponent({
         </motion.div>
       )}
 
+      {/* Viewport Canvas */}
       <div className="studio-viewport">
         <canvas
           ref={compositorCanvasRef}
@@ -544,7 +517,7 @@ function StudioRoomComponent({
 
         <div className="studio-framing-guide">
           <div className="studio-framing-box" />
-          <span className="studio-framing-text">Drag to reposition · Stay in frame</span>
+          <span className="studio-framing-text">Drag to reposition · Stay on floor</span>
         </div>
 
         <AnimatePresence mode="wait">
@@ -575,7 +548,8 @@ function StudioRoomComponent({
         </AnimatePresence>
       </div>
 
-      <div className="studio-controls" ref={controlsRef}>
+      {/* Studio Controls */}
+      <div className="studio-controls">
         <motion.button
           type="button"
           className={`studio-bg-btn studio-opt-btn ${flashOn ? 'opt-active' : ''}`}
@@ -613,7 +587,6 @@ function StudioRoomComponent({
 
         {isHost ? (
           <motion.button
-            ref={shutterBtnRef}
             type="button"
             className="studio-shutter-btn"
             onClick={handleShutter}
@@ -625,7 +598,7 @@ function StudioRoomComponent({
             <Camera size={24} />
           </motion.button>
         ) : (
-          <div className="studio-guest-hint" ref={shutterBtnRef}>
+          <div className="studio-guest-hint">
             <Sparkles size={14} />
             <span>The host will take the photo</span>
           </div>
@@ -672,6 +645,7 @@ function StudioRoomComponent({
         )}
       </div>
 
+      {/* Background Picker */}
       <AnimatePresence>
         {showBgPicker && (
           <motion.div
@@ -714,6 +688,7 @@ function StudioRoomComponent({
         )}
       </AnimatePresence>
 
+      {/* Quality Controls */}
       <AnimatePresence>
         {showQualityControls && (
           <motion.div
