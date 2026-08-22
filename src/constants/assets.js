@@ -1,27 +1,47 @@
-export const asset = (name) => new URL(`../../assets/${name}`, import.meta.url).href;
+const assetModules = import.meta.glob('../../assets/**/*.{png,jpg,jpeg,webp,svg,mp3,wav,ogg}', { eager: true, import: 'default' });
+const assetMap = new Map();
+
+for (const [rawPath, url] of Object.entries(assetModules)) {
+  const cleanPath = rawPath.replace(/^(\.\.\/)+assets\//, '');
+  assetMap.set(cleanPath, url);
+  const basename = cleanPath.split('/').pop();
+  if (!assetMap.has(basename)) {
+    assetMap.set(basename, url);
+  }
+}
+
+export const asset = (name) => {
+  if (!name) return '';
+  if (assetMap.has(name)) return assetMap.get(name);
+  const normalized = name.replace(/^(\.\.\/)+assets\//, '');
+  if (assetMap.has(normalized)) return assetMap.get(normalized);
+  const base = name.split('/').pop();
+  if (assetMap.has(base)) return assetMap.get(base);
+  return new URL(`../../assets/${name}`, import.meta.url).href;
+};
 
 export const ASSETS = {
-  scrapbook: asset('XLuTGjgtwjWtugfWBkwiLVHNF71_iX5xma4L6mxdq-VImioPV2fqq4TAkvueyEqg1IiNDI35_HvKV8KjpR__xK8UhB74W3ut-1GHsNKK_jjzet8cIi0KKKpYMK6JwdUllaTIG5MwrWg6y-XIFC-9moOd-NQkY-OGnp_zsu63kdSsIdoJ7u7KZ_dzygamVTPX.jpg'),
-  collage: asset('1FDV7eh_AR8YMK0FX-wk3cZewoeM_NZTtyX5a6Fu90SGrBSujtYzJtiOF5tJlZa7Ag6RJX8RVqJzMuBST-25aAliIT_40cFFlN9uFVp_F1chjnlFseI2SbuUyO6zbdwCObOqTPZsctXxjejoiXh6QTXTSAuR3KLhXb-m5CUxzzri1Jwj6D4VkIS3a1onqHp3.jpg'),
-  cameraWide: asset('54f49c9c7633a07bbc183dc5d7ab7d12.jpg'),
-  cameraPoster: asset('5d0962c9a39f4963242a24778a4b332c.jpg'),
-  cameraTop: asset('OIP.jpg'),
-  y2kGreen: asset('Pecn3dmLyNRtp0rgwH9MRdIph5qeSW5-djVPZtQkxI4cso7bVMImh0gggyyT4MkZwGskMCCUsIWDKsR7AHQT25Kc9OBiHBhWV_XuwJJZIKRUijSXejM30HY9Az5tpp6xiNf5KcHTRunrB_CILdS_yLJRp-p8kZNINCwEiHlDLRp4A8WxyWkTFyjx3cuG5Kx0.jpg'),
-  cuteSnaps: asset('Screenshot 2026-05-09 025853.png'),
-  doodleStrip: asset('Screenshot 2026-05-09 025918.png'),
-  previewDigicam: asset('retro cam.jpg'),
-  previewVhs: asset('vhs.jpg'),
-  previewGrain: asset('film grain.jpg'),
-  previewBloom: asset('dreamy bloom.jpg'),
-  previewFlash: asset('soft flash.jpg'),
-  previewCrt: asset('crt distory.jpg'),
-  previewWarm: asset('warm vintag3.jpg'),
-  previewSilver: asset('cool silver.jpg'),
-  previewPolaroid: asset('faded polaroid.jpg'),
+  scrapbook: asset('photos/XLuTGjgtwjWtugfWBkwiLVHNF71_iX5xma4L6mxdq-VImioPV2fqq4TAkvueyEqg1IiNDI35_HvKV8KjpR__xK8UhB74W3ut-1GHsNKK_jjzet8cIi0KKKpYMK6JwdUllaTIG5MwrWg6y-XIFC-9moOd-NQkY-OGnp_zsu63kdSsIdoJ7u7KZ_dzygamVTPX.jpg'),
+  collage: asset('photos/1FDV7eh_AR8YMK0FX-wk3cZewoeM_NZTtyX5a6Fu90SGrBSujtYzJtiOF5tJlZa7Ag6RJX8RVqJzMuBST-25aAliIT_40cFFlN9uFVp_F1chjnlFseI2SbuUyO6zbdwCObOqTPZsctXxjejoiXh6QTXTSAuR3KLhXb-m5CUxzzri1Jwj6D4VkIS3a1onqHp3.jpg'),
+  cameraWide: asset('photos/54f49c9c7633a07bbc183dc5d7ab7d12.jpg'),
+  cameraPoster: asset('photos/5d0962c9a39f4963242a24778a4b332c.jpg'),
+  cameraTop: asset('photos/OIP.jpg'),
+  y2kGreen: asset('photos/Pecn3dmLyNRtp0rgwH9MRdIph5qeSW5-djVPZtQkxI4cso7bVMImh0gggyyT4MkZwGskMCCUsIWDKsR7AHQT25Kc9OBiHBhWV_XuwJJZIKRUijSXejM30HY9Az5tpp6xiNf5KcHTRunrB_CILdS_yLJRp-p8kZNINCwEiHlDLRp4A8WxyWkTFyjx3cuG5Kx0.jpg'),
+  cuteSnaps: asset('photos/Screenshot 2026-05-09 025853.png'),
+  doodleStrip: asset('photos/Screenshot 2026-05-09 025918.png'),
+  previewDigicam: asset('filters/retro cam.jpg'),
+  previewVhs: asset('filters/vhs.jpg'),
+  previewGrain: asset('filters/film grain.jpg'),
+  previewBloom: asset('filters/dreamy bloom.jpg'),
+  previewFlash: asset('filters/soft flash.jpg'),
+  previewCrt: asset('filters/crt distory.jpg'),
+  previewWarm: asset('filters/warm vintag3.jpg'),
+  previewSilver: asset('filters/cool silver.jpg'),
+  previewPolaroid: asset('filters/faded polaroid.jpg'),
   playlist: [
-    asset('cassette-pastel-nights.mp3'),
-    asset('vhs-heartbeat.mp3'),
-    asset('polaroids-in-a-shoebox.mp3'),
+    asset('audio/cassette-pastel-nights.mp3'),
+    asset('audio/vhs-heartbeat.mp3'),
+    asset('audio/polaroids-in-a-shoebox.mp3'),
   ],
   shutter: 'https://www.soundjay.com/mechanical/camera-shutter-click-01.mp3',
 };
