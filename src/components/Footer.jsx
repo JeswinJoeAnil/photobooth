@@ -54,6 +54,8 @@ function FooterComponent() {
         </div>
         {submitStatus && <span className="footer-form-status" role="status">{submitStatus}</span>}
       </form>
+
+      <p className="footer-copyright">© 2026 Jeswin Joe Anil</p>
     </footer>
   );
 }
