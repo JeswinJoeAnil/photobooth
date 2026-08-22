@@ -91,8 +91,9 @@ export default function App() {
 
   useEffect(() => {
     if (!audioRef.current) return;
+    audioRef.current.volume = 0.55;
     if (audioOn) {
-      audioRef.current.play().catch(() => {});
+      audioRef.current.play().catch(() => { });
     } else {
       audioRef.current.pause();
     }
@@ -100,7 +101,7 @@ export default function App() {
 
   useEffect(() => {
     const s = new Audio(ASSETS.shutter);
-    s.volume = 0.6;
+    s.volume = 0.45;
     shutterRef.current = s;
   }, []);
 
@@ -125,8 +126,8 @@ export default function App() {
   const playShutter = useCallback(() => {
     if (!audioOn || !shutterRef.current) return;
     const s = shutterRef.current.cloneNode();
-    s.volume = 0.6;
-    s.play().catch(() => {});
+    s.volume = 0.45;
+    s.play().catch(() => { });
   }, [audioOn]);
 
   const onStartBooth = useCallback(() => {
@@ -253,6 +254,7 @@ export default function App() {
         ref={audioRef}
         src={ASSETS.playlist[trackIndex]}
         onEnded={nextTrack}
+        onPlay={(e) => { e.currentTarget.volume = 0.55; }}
         crossOrigin="anonymous"
       />
 
@@ -348,31 +350,31 @@ export default function App() {
             <div className="editor-split">
               <div className="editor-strip-col">
                 <div className="editor-strip-canvas">
-                   <PhotoResult
-                     frame={frame}
-                     photos={stripPhotos}
-                     filter={selectedFilter}
-                     accent={accent}
-                     decorations={decorations}
-                     setDecorations={setDecorations}
-                     activeDecoId={activeDecoId}
-                     setActiveDecoId={setActiveDecoId}
-                     doodlePaths={doodlePaths}
-                     setDoodlePaths={setDoodlePaths}
-                     doodleBrush={doodleBrush}
-                     stripTab={stripTab}
-                     zoom={zoom}
-                     rotation={rotation}
-                     vignette={vignette}
-                     fitSettings={fitSettings}
-                     photoScales={photoScales}
-                     setPhotoScales={setPhotoScales}
-                     timestamp={timestamp}
-                     stripBackground={stripBackground}
-setPreviewScale={setPreviewScale}
-                       setPreviewWidth={setPreviewWidth}
-                       stripElementRef={stripElementRef}
-                     />
+                  <PhotoResult
+                    frame={frame}
+                    photos={stripPhotos}
+                    filter={selectedFilter}
+                    accent={accent}
+                    decorations={decorations}
+                    setDecorations={setDecorations}
+                    activeDecoId={activeDecoId}
+                    setActiveDecoId={setActiveDecoId}
+                    doodlePaths={doodlePaths}
+                    setDoodlePaths={setDoodlePaths}
+                    doodleBrush={doodleBrush}
+                    stripTab={stripTab}
+                    zoom={zoom}
+                    rotation={rotation}
+                    vignette={vignette}
+                    fitSettings={fitSettings}
+                    photoScales={photoScales}
+                    setPhotoScales={setPhotoScales}
+                    timestamp={timestamp}
+                    stripBackground={stripBackground}
+                    setPreviewScale={setPreviewScale}
+                    setPreviewWidth={setPreviewWidth}
+                    stripElementRef={stripElementRef}
+                  />
                 </div>
               </div>
 
@@ -441,45 +443,45 @@ setPreviewScale={setPreviewScale}
                 <div className="editor-controls-card editor-export-card">
                   <div className="paper-note">All set! <Sparkles size={16} /></div>
                   <p>Export your memory</p>
-                   <MemoryLab
-                     frame={frame}
-                     photos={stripPhotos}
-                     filter={selectedFilter}
-                     accent={accent}
-                     decorations={decorations}
-                     setDecorations={setDecorations}
-                     activeDecoId={activeDecoId}
-                     setActiveDecoId={setActiveDecoId}
-                     doodlePaths={doodlePaths}
-                     setDoodlePaths={setDoodlePaths}
-                     doodleBrush={doodleBrush}
-                     setDoodleBrush={setDoodleBrush}
-                     developing={developing}
-                     setDeveloping={setDeveloping}
-                     zoom={zoom}
-                     setZoom={setZoom}
-                     rotation={rotation}
-                     setRotation={setRotation}
-                     vignette={vignette}
-                     stripTab={stripTab}
-                     setStripTab={setStripTab}
-                     accentColor={accent}
-                     captured={captured}
-                     fitSettings={fitSettings}
-                     setFitSettings={setFitSettings}
-                     photoScales={photoScales}
-                     setPhotoScales={setPhotoScales}
-                     timestamp={timestamp}
-                     mode={mode}
-                     onShuffle={handleShuffle}
-                     resultImage={resultImage}
-                     setResultImage={setResultImage}
-                     stripBackground={stripBackground}
-                     previewScale={previewScale}
-                     previewWidth={previewWidth}
-                     stripElementRef={stripElementRef}
-                     exportOnly
-                   />
+                  <MemoryLab
+                    frame={frame}
+                    photos={stripPhotos}
+                    filter={selectedFilter}
+                    accent={accent}
+                    decorations={decorations}
+                    setDecorations={setDecorations}
+                    activeDecoId={activeDecoId}
+                    setActiveDecoId={setActiveDecoId}
+                    doodlePaths={doodlePaths}
+                    setDoodlePaths={setDoodlePaths}
+                    doodleBrush={doodleBrush}
+                    setDoodleBrush={setDoodleBrush}
+                    developing={developing}
+                    setDeveloping={setDeveloping}
+                    zoom={zoom}
+                    setZoom={setZoom}
+                    rotation={rotation}
+                    setRotation={setRotation}
+                    vignette={vignette}
+                    stripTab={stripTab}
+                    setStripTab={setStripTab}
+                    accentColor={accent}
+                    captured={captured}
+                    fitSettings={fitSettings}
+                    setFitSettings={setFitSettings}
+                    photoScales={photoScales}
+                    setPhotoScales={setPhotoScales}
+                    timestamp={timestamp}
+                    mode={mode}
+                    onShuffle={handleShuffle}
+                    resultImage={resultImage}
+                    setResultImage={setResultImage}
+                    stripBackground={stripBackground}
+                    previewScale={previewScale}
+                    previewWidth={previewWidth}
+                    stripElementRef={stripElementRef}
+                    exportOnly
+                  />
                 </div>
               </div>
             </div>

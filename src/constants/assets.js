@@ -19,9 +19,9 @@ export const ASSETS = {
   previewSilver: asset('cool silver.jpg'),
   previewPolaroid: asset('faded polaroid.jpg'),
   playlist: [
-    asset('im in love.mp3'),
-    asset('midnight pretenders.mp3'),
-    asset('plastic love.mp3'),
+    asset('cassette-pastel-nights.mp3'),
+    asset('vhs-heartbeat.mp3'),
+    asset('polaroids-in-a-shoebox.mp3'),
   ],
   shutter: 'https://www.soundjay.com/mechanical/camera-shutter-click-01.mp3',
 };
