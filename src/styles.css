@@ -6014,7 +6014,7 @@ main {
   mix-blend-mode: soft-light; pointer-events: none; opacity: .55;
 }
 
-.lost-ghost {
+.lost-body-ghost {
   position: absolute;
   inset: 0;
   display: grid; place-items: center;
@@ -6122,16 +6122,17 @@ main {
 .lost-primary:hover { border-color: rgba(255,90,175,.45); box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 16px 32px rgba(255,90,175,.22); }
 .lost-primary:focus-visible { outline: 2px solid var(--hot); outline-offset: 3px; }
 
-.lost-ghost {
+.lost-ghost-btn {
   display: inline-flex; align-items: center; gap: 8px;
   min-height: 44px; padding: 0 18px; border-radius: 999px;
   color: rgba(255,255,255,.88); font-weight: 800; font-size: 13px;
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.10);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   transition: background .18s ease, border-color .18s ease, transform .18s ease;
 }
-.lost-ghost:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16); transform: translateY(-1px); }
-.lost-ghost:focus-visible { outline: 2px solid rgba(255,255,255,.5); outline-offset: 3px; }
+.lost-ghost-btn:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16); transform: translateY(-1px); }
+.lost-ghost-btn:focus-visible { outline: 2px solid rgba(255,255,255,.5); outline-offset: 3px; }
 
 .lost-hint { margin: 2px 0 0; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.42); }
 
@@ -6160,7 +6161,7 @@ main {
   .lost-frame { width: min(88vw, 320px); padding: 12px 12px 10px; border-radius: 18px; }
   .lost-brand { top: 14px; }
   .lost-actions { flex-direction: column; width: 100%; }
-  .lost-primary, .lost-ghost { width: 100%; justify-content: center; min-height: 48px; }
+  .lost-primary, .lost-ghost-btn { width: 100%; justify-content: center; min-height: 48px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

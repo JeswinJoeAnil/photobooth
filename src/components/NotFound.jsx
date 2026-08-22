@@ -90,7 +90,7 @@ export function NotFound({ onGoHome, onOpenLab }) {
             <div className="lost-frame-body">
               <div className="lost-body-grain" aria-hidden="true" />
               <div className="lost-scanline" aria-hidden="true" />
-              <div className="lost-ghost" aria-hidden="true">404</div>
+              <div className="lost-body-ghost" aria-hidden="true">404</div>
 
               <div className="lost-center">
                 <motion.div
@@ -193,7 +193,7 @@ export function NotFound({ onGoHome, onOpenLab }) {
             >
               <Camera size={16} /> Back to Booth
             </motion.button>
-            <button type="button" className="lost-ghost" onClick={handleLab}>
+            <button type="button" className="lost-ghost-btn" onClick={handleLab}>
               Memory Lab <ArrowLeft size={14} style={{ transform: 'rotate(180deg)' }} />
             </button>
           </motion.div>
