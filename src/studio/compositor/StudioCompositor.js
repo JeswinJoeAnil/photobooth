@@ -99,7 +99,7 @@ export class StudioCompositor {
   isVideoPlayable(video) {
     if (!video) return false;
     if (video.paused) video.play().catch(() => {});
-    return video.readyState >= 1 || video.videoWidth > 0;
+    return video.readyState >= 2 && video.videoWidth > 0;
   }
 
   /**

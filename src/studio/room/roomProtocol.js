@@ -1,6 +1,7 @@
 /**
  * Studio Room Protocol
- * Typed messaging constants and payload schemas for WebRTC data connections.
+ * Typed messaging constants, payload schemas, and centralized message validation
+ * for WebRTC data connections.
  */
 
 export const PROTOCOL_TYPES = {
@@ -12,6 +13,111 @@ export const PROTOCOL_TYPES = {
   FLASH_FIRE: 'FLASH_FIRE',
   LEAVE: 'LEAVE',
 };
+
+const VALID_TYPES = new Set(Object.values(PROTOCOL_TYPES));
+
+/**
+ * Host-only message types: only the host peer may send these.
+ */
+const HOST_ONLY_TYPES = new Set([
+  PROTOCOL_TYPES.ROOM_STATE_SYNC,
+  PROTOCOL_TYPES.SHUTTER,
+  PROTOCOL_TYPES.FLASH_FIRE,
+  PROTOCOL_TYPES.PEER_LIST,
+]);
+
+/**
+ * Maximum serialized message size (bytes). Prevents oversized payloads
+ * (e.g., multi-MB custom background data URLs sent as room state).
+ */
+const MAX_MESSAGE_SIZE = 300 * 1024; // 300 KB
+
+/**
+ * Centralized incoming message validation pipeline.
+ *
+ * Validates:
+ * 1. Structure — non-null object with a `type` field
+ * 2. Type — must be a known PROTOCOL_TYPES value
+ * 3. Sender — fromPeerId must be a non-empty string
+ * 4. Authorization — host-only commands rejected if sender !== hostPeerId;
+ *    PARTICIPANT_UPDATE and LEAVE must target self (targetId === fromPeerId)
+ * 5. Payload bounds — string lengths, numeric ranges, array sizes
+ * 6. Size limiting — reject messages whose serialized size exceeds MAX_MESSAGE_SIZE
+ *
+ * @param {*} data - The raw deserialized message from the data channel
+ * @param {string} fromPeerId - The verified PeerJS connection peer ID
+ * @param {string} hostPeerId - The current room's host peer ID
+ * @returns {{ valid: boolean, reason?: string }}
+ */
+export function validateIncomingMessage(data, fromPeerId, hostPeerId) {
+  // 1. Structure validation
+  if (!data || typeof data !== 'object' || !data.type) {
+    return { valid: false, reason: 'invalid_structure' };
+  }
+
+  // 2. Type whitelist
+  if (!VALID_TYPES.has(data.type)) {
+    return { valid: false, reason: 'unknown_type' };
+  }
+
+  // 3. Sender validation
+  if (!fromPeerId || typeof fromPeerId !== 'string') {
+    return { valid: false, reason: 'invalid_sender' };
+  }
+
+  // 4. Authorization
+  if (HOST_ONLY_TYPES.has(data.type) && fromPeerId !== hostPeerId) {
+    return { valid: false, reason: 'unauthorized_host_only' };
+  }
+
+  if (data.type === PROTOCOL_TYPES.PARTICIPANT_UPDATE) {
+    if (data.peerId && data.peerId !== fromPeerId) {
+      return { valid: false, reason: 'participant_update_impersonation' };
+    }
+  }
+
+  if (data.type === PROTOCOL_TYPES.LEAVE) {
+    // LEAVE must only target sender's own peerId
+    if (data.peerId && data.peerId !== fromPeerId) {
+      return { valid: false, reason: 'leave_spoofing' };
+    }
+  }
+
+  // 5. Payload bounds
+  if (data.type === PROTOCOL_TYPES.IDENTITY) {
+    if (typeof data.displayName === 'string' && data.displayName.length > 50) {
+      return { valid: false, reason: 'display_name_too_long' };
+    }
+  }
+
+  if (data.type === PROTOCOL_TYPES.SHUTTER) {
+    if (typeof data.totalShots === 'number' && (data.totalShots < 1 || data.totalShots > 10)) {
+      return { valid: false, reason: 'invalid_shot_count' };
+    }
+    if (typeof data.timerSec === 'number' && (data.timerSec < 0 || data.timerSec > 30)) {
+      return { valid: false, reason: 'invalid_timer' };
+    }
+  }
+
+  if (data.type === PROTOCOL_TYPES.ROOM_STATE_SYNC && data.roomState) {
+    // Reject room state with oversized customBgUrl (>250KB data URL)
+    if (typeof data.roomState.customBgUrl === 'string' && data.roomState.customBgUrl.length > 250 * 1024) {
+      return { valid: false, reason: 'custom_bg_too_large' };
+    }
+  }
+
+  // 6. Size limiting (rough estimate using JSON serialization)
+  try {
+    const approxSize = JSON.stringify(data).length;
+    if (approxSize > MAX_MESSAGE_SIZE) {
+      return { valid: false, reason: 'message_too_large' };
+    }
+  } catch {
+    return { valid: false, reason: 'unserializable' };
+  }
+
+  return { valid: true };
+}
 
 /**
  * Creates an IDENTITY message payload.

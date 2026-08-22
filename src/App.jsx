@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Camera, Sparkles } from 'lucide-react';
 import { ASSETS, BACKGROUNDS, PRELOAD_IMAGE_URLS, assetPhotos, filters, frames, stickers } from './constants/assets.js';
@@ -14,7 +14,7 @@ import { PhotoResult } from './components/PhotoResult.jsx';
 import { StripEditor } from './components/StripEditor.jsx';
 import { MemoryLab } from './components/MemoryLab.jsx';
 import { Footer } from './components/Footer.jsx';
-import { StudioMode } from './components/Studio/StudioMode.jsx';
+const StudioMode = lazy(() => import('./components/Studio/StudioMode.jsx').then(m => ({ default: m.StudioMode })));
 
 export default function App() {
   const [mode, setMode] = useState(4);
@@ -53,6 +53,7 @@ export default function App() {
     return hash === 'editor' ? 'editor' : 'capture';
   });
   const [cameraStream, setCameraStream] = useState(null);
+  const [cameraError, setCameraError] = useState(null);
   const [cameraRequested, setCameraRequested] = useState(false);
   const [previewScale, setPreviewScale] = useState(1);
   const [previewWidth, setPreviewWidth] = useState(380);
@@ -61,12 +62,23 @@ export default function App() {
   const requestCamera = useCallback(() => {
     if (cameraRequested) return;
     setCameraRequested(true);
+    setCameraError(null);
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
       .then((stream) => {
         setCameraStream(stream);
       })
-      .catch(() => {
-        /* Permission denied or no camera — CameraBooth will handle fallback */
+      .catch((err) => {
+        console.warn('Camera access error:', err.name, err.message);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setCameraError('Camera permission denied. Please allow camera access and try again.');
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          setCameraError('No camera found. Please connect a camera and try again.');
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          setCameraError('Camera is in use by another application. Please close other apps using the camera.');
+        } else {
+          setCameraError('Could not access camera. Please check your device settings.');
+        }
+        setCameraRequested(false); // Allow retry
       });
   }, [cameraRequested]);
 
@@ -232,11 +244,11 @@ export default function App() {
         onGoToEditor={goToEditor}
         onStudioOpen={openStudio}
       />
-      <StudioMode
-        isOpen={isStudioOpen}
-        onClose={closeStudio}
-        onCaptureComplete={handleStudioCapture}
-      />
+      {isStudioOpen && (
+        <Suspense fallback={<div className="studio-loading">Loading Studio…</div>}>
+          <StudioMode isOpen={isStudioOpen} onClose={closeStudio} onCaptureComplete={handleStudioCapture} />
+        </Suspense>
+      )}
       <audio
         ref={audioRef}
         src={ASSETS.playlist[trackIndex]}
@@ -279,6 +291,7 @@ export default function App() {
                 onCapture={playShutter}
                 cameraStream={cameraStream}
                 onRequestCamera={requestCamera}
+                cameraError={cameraError}
               />
               <CameraEditor
                 activeFilter={activeFilter}

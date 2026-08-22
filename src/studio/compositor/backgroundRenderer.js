@@ -6,6 +6,13 @@
 import { STUDIO_BACKGROUNDS } from '../../constants/studioAssets.js';
 
 const _imageCache = new Map();
+const MAX_BG_CACHE = 4;
+// Data URLs are 250KB+ and make terrible Map keys — hash by short id
+function cacheKey(url) {
+  if (!url) return url;
+  if (url.startsWith('data:')) return `data:${url.slice(0, 48)}:${url.length}`;
+  return url;
+}
 
 /**
  * Draws the photographic studio backdrop, ambient glows, and floor perspective plane.
@@ -23,14 +30,17 @@ export function drawStudioBackground(ctx, background, width, height) {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
-    const cached = _imageCache.get(background.customImageUrl);
+    const key = cacheKey(background.customImageUrl);
+    const cached = _imageCache.get(key);
     if (cached?.complete && cached.naturalWidth > 0) {
       ctx.drawImage(cached, 0, 0, width, height);
     } else if (!cached) {
       const img = new Image();
+      // Reset on error to retry next frame
+      img.onerror = () => _imageCache.delete(key);
       img.src = background.customImageUrl;
-      _imageCache.set(background.customImageUrl, img);
-      if (_imageCache.size > 4) {
+      _imageCache.set(key, img);
+      if (_imageCache.size > MAX_BG_CACHE) {
         const oldest = _imageCache.keys().next().value;
         _imageCache.delete(oldest);
       }

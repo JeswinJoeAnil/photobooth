@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Sitemap: https://anomalyco.github.io/Memorie/sitemap.xml
+

@@ -37,6 +37,7 @@ function CameraBoothComponent({
   onCapture,
   cameraStream,
   onRequestCamera,
+  cameraError,
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -314,7 +315,7 @@ function CameraBoothComponent({
             <AnimatePresence mode="wait">
               {countdown && <motion.div className="countdown" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
             </AnimatePresence>
-            {error && <div className="camera-error">{error}</div>}
+            {(cameraError || error) && <div className="camera-error" role="alert">{cameraError || error}</div>}
           </div>
           <div className="camera-options">
             <button type="button" className={flashOn ? 'opt-active' : ''} onClick={() => setFlashOn((v) => !v)} aria-pressed={flashOn}><Flashlight size={18} /> Flash <span>{flashOn ? 'on' : 'off'}</span></button>
@@ -334,15 +335,21 @@ function CameraBoothComponent({
             <button type="button" onClick={() => { if (!shooting) setCaptured((list) => list.slice(0, -1)); setStatusMessage('Removed the latest photo.'); }} disabled={shooting || captured.length === 0}><RotateCw size={18} /> Retake <span>{captured.length}</span></button>
           </div>
         </div>
-        {(statusMessage || error) && (
+        {(statusMessage || error || cameraError) && (
           <div className="accessible-status" role="status" aria-live="polite">
-            {statusMessage || error}
+            {cameraError || statusMessage || error}
           </div>
         )}
         <div className="capture-actions">
           {!shooting ? (
             <>
-              {!streaming && (
+              {cameraError ? (
+                <div className="camera-status-bar camera-status-bar--error" role="alert">
+                  <span className="camera-status-dot camera-status-dot--error" />
+                  <span>{cameraError}</span>
+                  <button type="button" className="pill-button" onClick={() => onRequestCamera?.()} style={{ marginLeft: 8 }}>Retry</button>
+                </div>
+              ) : !streaming && (
                 <div className="camera-status-bar" role="status">
                   <span className="camera-status-dot" />
                   <span>camera off · tap capture to start</span>

@@ -19,7 +19,6 @@ class SegmentationManager {
     this.initFailed = false;
     this._retryCount = 0;
     this.participantState = new Map();
-    this.globalTimestamp = 1;
   }
 
   getIntervalForCount(count) {
@@ -32,6 +31,7 @@ class SegmentationManager {
   async init() {
     if (this.isReady && this.segmenter) return true;
     if (this.initPromise) return this.initPromise;
+    if (this._retryCount >= 3) return false; // Exhausted retries
 
     this.initPromise = (async () => {
       try {
@@ -68,10 +68,25 @@ class SegmentationManager {
         this.initFailed = true;
         this.initPromise = null;
 
+        // Detect permanent failures (CSP blocking WASM, missing APIs) — don't retry
+        const msg = String(err?.message || err || '');
+        const isPermanent =
+          msg.includes('CompileError') ||
+          msg.includes('Content Security Policy') ||
+          msg.includes('WebAssembly') ||
+          (typeof CompileError !== 'undefined' && err instanceof CompileError);
+
+        if (isPermanent) {
+          console.error('MediaPipe WASM blocked by CSP or unsupported — retries disabled.');
+          this._retryCount = 3; // Prevent further attempts
+          return false;
+        }
+
         if (this._retryCount < 3) {
           this._retryCount++;
-          const delay = this._retryCount * 4000;
-          setTimeout(() => this.init(), delay);
+          console.warn(`MediaPipe init retry ${this._retryCount}/3 in ${this._retryCount * 4}s`);
+          await new Promise((r) => setTimeout(r, this._retryCount * 4000));
+          return this.init(); // Re-enter with initPromise = null, so a new attempt starts
         }
         return false;
       }
@@ -138,8 +153,18 @@ class SegmentationManager {
 
     if (shouldSegment && this.isReady && this.segmenter) {
       try {
-        this.globalTimestamp += 1;
-        const result = this.segmenter.segmentForVideo(videoElement, this.globalTimestamp);
+        // Use performance.now() for MediaPipe VIDEO mode timestamps.
+        // Each call must provide a strictly increasing timestamp.
+        // Since we throttle per-participant via lastSegmentTime, performance.now()
+        // is guaranteed to increase between calls for the same peer.
+        // We also guard per-participant to ensure strict monotonicity.
+        let timestampMs = Math.round(performance.now());
+        if (timestampMs <= entry.lastTimestampMs) {
+          timestampMs = entry.lastTimestampMs + 1;
+        }
+        entry.lastTimestampMs = timestampMs;
+
+        const result = this.segmenter.segmentForVideo(videoElement, timestampMs);
 
         if (result?.confidenceMasks?.length > 0) {
           const mask = result.confidenceMasks[0];
@@ -213,16 +238,28 @@ class SegmentationManager {
   }
 
   removeParticipant(peerId) {
+    const entry = this.participantState.get(peerId);
+    if (entry) {
+      // Free GPU-backed canvases before dropping reference
+      try { entry.cutoutCanvas.width = 0; entry.cutoutCanvas.height = 0; } catch {}
+      try { entry.maskCanvas.width = 0; entry.maskCanvas.height = 0; } catch {}
+    }
     this.participantState.delete(peerId);
   }
 
   destroy() {
+    this.participantState.forEach((entry) => {
+      try { entry.cutoutCanvas.width = 0; entry.cutoutCanvas.height = 0; } catch {}
+      try { entry.maskCanvas.width = 0; entry.maskCanvas.height = 0; } catch {}
+    });
     this.participantState.clear();
     if (this.segmenter?.close) {
       try { this.segmenter.close(); } catch {}
       this.segmenter = null;
     }
     this.isReady = false;
+    this.initPromise = null;
+    this.initFailed = false;
   }
 }
 

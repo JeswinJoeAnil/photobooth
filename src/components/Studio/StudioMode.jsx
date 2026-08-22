@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStudioRoom } from '../../hooks/useStudioRoom.js';
+import { segmentationManager } from '../../studio/segmentation/segmentationManager.js';
 import { StudioEntry } from './StudioEntry.jsx';
 import { StudioLobby } from './StudioLobby.jsx';
 import { StudioRoom } from './StudioRoom.jsx';
@@ -17,7 +18,11 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
 
   const requestMedia = useCallback(async () => {
     setPermissionError('');
+    studio.setErrorMessage?.('');
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('getUserMedia not supported');
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
@@ -26,19 +31,27 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
       return stream;
     } catch (err) {
       console.warn('Camera permission denied:', err);
-      setPermissionError(
-        'Camera permission is required for Studio Mode. Please allow camera access and try again.'
-      );
+      const name = err?.name || '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setPermissionError('Camera permission denied. Please allow camera access and try again.');
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setPermissionError('No camera found. Please connect a camera and try again.');
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        setPermissionError('Camera is in use by another application. Please close other apps using the camera.');
+      } else {
+        setPermissionError('Camera permission is required for Studio Mode. Please allow camera access and try again.');
+      }
       return null;
     }
-  }, []);
+  }, [studio]);
 
   const handleCreateRoom = useCallback(
     async (name) => {
       setPhase('permission');
+      setPermissionError('');
       const stream = await requestMedia();
       if (!stream) {
-        setPhase('entry');
+        // stay in permission phase so the error is visible with Go Back
         return;
       }
       studio.setDisplayName(name);
@@ -46,7 +59,9 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
       if (code) {
         setPhase('lobby');
       } else {
-        setPhase('entry');
+        // surface peer/room creation error instead of silently bouncing to entry
+        // studio.errorMessage is updated asynchronously via onError; use fallback if not yet set
+        setPermissionError((prev) => prev || 'Could not create studio session. Please try again.');
       }
     },
     [requestMedia, studio]
@@ -55,9 +70,9 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
   const handleJoinRoom = useCallback(
     async (code, name) => {
       setPhase('permission');
+      setPermissionError('');
       const stream = await requestMedia();
       if (!stream) {
-        setPhase('entry');
         return;
       }
       setPhase('connecting');
@@ -66,7 +81,12 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
       if (success) {
         setPhase('room');
       } else {
-        setPhase('entry');
+        // stay in connecting phase so studio.errorMessage is visible;
+        // if no error was set, surface a generic message in permission phase
+        if (!studio.errorMessage) {
+          setPermissionError('Could not join studio. Please check the code and try again.');
+          setPhase('permission');
+        }
       }
     },
     [requestMedia, studio]
@@ -78,6 +98,7 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
 
   const handleLeave = useCallback(() => {
     studio.leaveRoom();
+    segmentationManager.destroy();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
@@ -93,6 +114,7 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
   const handleCaptureComplete = useCallback(
     (photos, shotCount) => {
       studio.leaveRoom();
+      segmentationManager.destroy();
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
         localStreamRef.current = null;
@@ -105,6 +127,7 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
 
   useEffect(() => {
     return () => {
+      segmentationManager.destroy();
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -143,10 +166,18 @@ function StudioModeComponent({ isOpen, onClose, onCaptureComplete }) {
             exit={{ opacity: 0, y: 30 }}
           >
             <div className="studio-permission-content">
-              {permissionError ? (
+              {(studio.errorMessage || permissionError) ? (
                 <>
-                  <p className="studio-permission-error">{permissionError}</p>
-                  <button type="button" className="studio-join-btn" onClick={() => setPhase('entry')}>
+                  <p className="studio-permission-error">{studio.errorMessage || permissionError}</p>
+                  <button type="button" className="studio-join-btn" onClick={() => {
+                    if (localStreamRef.current) {
+                      localStreamRef.current.getTracks().forEach((t) => t.stop());
+                      localStreamRef.current = null;
+                    }
+                    studio.leaveRoom();
+                    setPermissionError('');
+                    setPhase('entry');
+                  }}>
                     Go Back
                   </button>
                 </>

@@ -136,13 +136,16 @@ function StudioRoomComponent({
   }, []);
 
   // Single requestAnimationFrame loop for the studio scene
+  // Pauses when the tab is hidden to prevent wasted CPU/GPU cycles.
   useEffect(() => {
     const activeBg = customBgUrl
       ? { solidColor: '#000', customImageUrl: customBgUrl }
       : background;
 
+    let isVisible = !document.hidden;
+
     const renderLoop = () => {
-      if (compositorEngineRef.current) {
+      if (compositorEngineRef.current && isVisible) {
         compositorEngineRef.current.renderFrame({
           background: activeBg,
           sceneParticipants: sceneParticipantsRef.current,
@@ -151,8 +154,14 @@ function StudioRoomComponent({
       animFrameRef.current = requestAnimationFrame(renderLoop);
     };
 
+    const handleVisibility = () => {
+      isVisible = !document.hidden;
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     renderLoop();
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
       if (animFrameRef.current !== null) {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
@@ -229,15 +238,58 @@ function StudioRoomComponent({
     const file = e.target.files?.[0];
     if (!file || !isHost) return;
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const dataUrl = evt.target?.result;
-      if (!dataUrl) return;
-      setLocalCustomBgUrl(dataUrl);
+    // Pre-decode guard: reject oversized files before decoding (OOM protection)
+    const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 MB
+    if (file.size > MAX_FILE_SIZE) {
+      console.warn(`Custom background: rejected oversized file ${(file.size / 1048576).toFixed(1)}MB > 8MB`);
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file type: only raster image formats accepted, no SVG
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      console.warn('Custom background: rejected file type', file.type);
+      e.target.value = '';
+      return;
+    }
+
+    // Local rasterization pipeline: File → Image → Canvas resize → JPEG compress → data URL
+    const MAX_WIDTH = 1920;
+    const MAX_HEIGHT = 1080;
+
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      // Calculate scaled dimensions maintaining aspect ratio
+      let { naturalWidth: w, naturalHeight: h } = img;
+      if (w > MAX_WIDTH || h > MAX_HEIGHT) {
+        const scale = Math.min(MAX_WIDTH / w, MAX_HEIGHT / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+
+      // Rasterize onto canvas and compress as JPEG
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, w, h);
+
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+      setLocalCustomBgUrl(compressedDataUrl);
       setShowBgPicker(false);
-      updateHostSettings({ customBgUrl: dataUrl, backgroundId: null });
+      updateHostSettings({ customBgUrl: compressedDataUrl, backgroundId: null });
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      console.warn('Custom background: failed to decode image');
+    };
+    img.src = objectUrl;
   };
 
   const toggleMirror = useCallback(() => {
@@ -405,18 +457,17 @@ function StudioRoomComponent({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
-      {/* Stable offscreen video container */}
+      {/* Hidden video container — kept in-viewport to prevent browser decoding suspension */}
       <div
         style={{
-          position: 'fixed',
-          top: '-9999px',
-          left: '-9999px',
-          width: '320px',
-          height: '240px',
-          opacity: 0.01,
-          pointerEvents: 'none',
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
           overflow: 'hidden',
-          zIndex: -9999,
+          clip: 'rect(0, 0, 0, 0)',
+          clipPath: 'inset(50%)',
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
         }}
         aria-hidden="true"
       >
@@ -513,6 +564,21 @@ function StudioRoomComponent({
           width={1280}
           height={720}
           onPointerDown={handlePointerDown}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              const step = 0.02;
+              const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+              const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+              const rawX = (selfMember?.transform?.x ?? 0.5) + dx;
+              const rawY = (selfMember?.transform?.baselineY ?? 0.88) + dy;
+              const c = constrainParticipantPosition(rawX, rawY);
+              updateSelfParticipant({ transform: { ...selfMember.transform, x: c.x, baselineY: c.baselineY, isManual: true } });
+            }
+          }}
+          tabIndex={0}
+          role="img"
+          aria-label="Studio stage — drag or use arrow keys to reposition"
           style={{ touchAction: 'none', cursor: 'grab' }}
         />
 
@@ -521,6 +587,7 @@ function StudioRoomComponent({
           <span className="studio-framing-text">Drag to reposition · Stay on floor</span>
         </div>
 
+        <div aria-live="assertive" aria-atomic="true" className="sr-only">{countdown !== null ? `Capturing in ${countdown}` : ''}</div>
         <AnimatePresence mode="wait">
           {countdown !== null && (
             <motion.div
@@ -530,6 +597,7 @@ function StudioRoomComponent({
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 1.6, opacity: 0 }}
               transition={{ duration: 0.35 }}
+              aria-hidden="true"
             >
               <span className="studio-countdown-number">{countdown}</span>
             </motion.div>

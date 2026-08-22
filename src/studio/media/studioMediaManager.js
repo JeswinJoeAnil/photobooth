@@ -7,15 +7,33 @@
 
 import Peer from 'peerjs';
 
+function buildIceServers() {
+  const stun = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+  // Optional TURN for NAT-restricted networks (configure via env):
+  // VITE_TURN_URLS=turn:turn.example.com:3478  VITE_TURN_USERNAME=user  VITE_TURN_CREDENTIAL=pass
+  const turnUrls = import.meta.env.VITE_TURN_URLS;
+  const turnUser = import.meta.env.VITE_TURN_USERNAME;
+  const turnCred = import.meta.env.VITE_TURN_CREDENTIAL;
+  if (turnUrls && turnUser && turnCred) {
+    return [...stun, { urls: turnUrls.split(','), username: turnUser, credential: turnCred }];
+  }
+  if (import.meta.env.DEV) {
+    console.warn('WebRTC: TURN not configured — symmetric NAT will fail. Set VITE_TURN_URLS/USERNAME/CREDENTIAL.');
+  }
+  return stun;
+}
+
 const PEER_CONFIG = {
   config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-    ],
+    iceServers: buildIceServers(),
   },
 };
+
+const MAX_PEERS_HARD_CAP = 4;
 
 const MESH_RETRY_DELAYS_MS = [0, 500, 1200, 3000];
 const MESH_FALLBACK_MS = 3000;
@@ -81,11 +99,19 @@ export class StudioMediaManager {
       this._setupIncomingCallHandler();
       this._setupIncomingDataHandler();
 
+      let reconnectAttempts = 0;
       this.peer.on('disconnected', () => {
-        if (!this.destroyed && this.peer && !this.peer.destroyed) {
-          this.peer.reconnect();
-        }
+        if (this.destroyed || !this.peer || this.peer.destroyed) return;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+        reconnectAttempts++;
+        console.warn(`Peer disconnected — reconnect attempt ${reconnectAttempts} in ${delay}ms`);
+        setTimeout(() => {
+          if (!this.destroyed && this.peer && !this.peer.destroyed) {
+            try { this.peer.reconnect(); } catch {}
+          }
+        }, delay);
       });
+      this.peer.on('open', () => { reconnectAttempts = 0; });
 
       this.peer.on('error', (err) => {
         console.warn('Peer error (host):', err);
@@ -122,11 +148,19 @@ export class StudioMediaManager {
       this._setupIncomingCallHandler();
       this._setupIncomingDataHandler();
 
+      let guestReconnectAttempts = 0;
       this.peer.on('disconnected', () => {
-        if (!this.destroyed && this.peer && !this.peer.destroyed) {
-          this.peer.reconnect();
-        }
+        if (this.destroyed || !this.peer || this.peer.destroyed) return;
+        const delay = Math.min(1000 * Math.pow(2, guestReconnectAttempts), 30000);
+        guestReconnectAttempts++;
+        console.warn(`Peer disconnected — reconnect attempt ${guestReconnectAttempts} in ${delay}ms`);
+        setTimeout(() => {
+          if (!this.destroyed && this.peer && !this.peer.destroyed) {
+            try { this.peer.reconnect(); } catch {}
+          }
+        }, delay);
       });
+      this.peer.on('open', () => { guestReconnectAttempts = 0; });
 
       this.peer.on('error', (err) => {
         console.warn('Peer error (guest):', err);
@@ -189,6 +223,13 @@ export class StudioMediaManager {
         try { incomingCall.close(); } catch {}
         return;
       }
+      // Hard cap: reject if already at MAX_PEERS_HARD_CAP (client-side, until TURN/validate)
+      const activeCount = (this.connections.size + 1); // +1 self
+      if (activeCount >= MAX_PEERS_HARD_CAP + 1 || this.connections.size >= MAX_PEERS_HARD_CAP) {
+        console.warn(`Rejecting call from ${remotePeerId}: room full (${activeCount})`);
+        try { incomingCall.close(); } catch {}
+        return;
+      }
 
       // Answer with our local camera stream
       incomingCall.answer(this.localStream);
@@ -218,6 +259,12 @@ export class StudioMediaManager {
     this.peer.on('connection', (dataConn) => {
       const remotePeerId = dataConn.peer;
       if (remotePeerId === this.selfPeerId) return;
+      // Cap data channels too
+      if (this.connections.size >= MAX_PEERS_HARD_CAP && !this.connections.has(remotePeerId)) {
+        console.warn(`Rejecting data channel from ${remotePeerId}: room full`);
+        try { dataConn.close(); } catch {}
+        return;
+      }
 
       const entry = this.connections.get(remotePeerId) || {};
       entry.dataConn = dataConn;

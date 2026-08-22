@@ -17,6 +17,7 @@ import {
   createPeerListMessage,
   createRoomStateSyncMessage,
   PROTOCOL_TYPES,
+  validateIncomingMessage,
 } from '../studio/room/roomProtocol.js';
 import { hostPeerIdForCode, StudioMediaManager } from '../studio/media/studioMediaManager.js';
 
@@ -113,6 +114,16 @@ export function useStudioRoom() {
     (data, fromPeerId) => {
       if (!data?.type) return;
 
+      // Centralized message validation gate
+      const hostId = roomStateRef.current?.hostPeerId || null;
+      const validation = validateIncomingMessage(data, fromPeerId, hostId);
+      if (!validation.valid) {
+        if (import.meta.env.DEV) {
+          console.warn(`[Protocol] Rejected message from ${fromPeerId}: ${validation.reason}`, data.type);
+        }
+        return;
+      }
+
       // Dispatch to custom listeners (e.g. SHUTTER, FLASH_FIRE)
       dataHandlersRef.current.forEach((handler) => handler(data, fromPeerId));
 
@@ -171,7 +182,8 @@ export function useStudioRoom() {
 
         case PROTOCOL_TYPES.LEAVE: {
           if (isHostRef.current && roomStateRef.current) {
-            const leaveId = data.peerId || fromPeerId;
+            // Always use the verified fromPeerId — never trust data.peerId
+            const leaveId = fromPeerId;
             const next = bumpRoomState(roomStateRef.current, {
               members: removeMember(roomStateRef.current.members, leaveId),
             });
@@ -482,6 +494,7 @@ export function useStudioRoom() {
     localStream,
     displayName,
     errorMessage,
+    setErrorMessage,
     createRoom,
     joinRoom,
     leaveRoom,
