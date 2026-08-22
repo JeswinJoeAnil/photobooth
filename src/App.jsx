@@ -14,7 +14,26 @@ import { PhotoResult } from './components/PhotoResult.jsx';
 import { StripEditor } from './components/StripEditor.jsx';
 import { MemoryLab } from './components/MemoryLab.jsx';
 import { Footer } from './components/Footer.jsx';
+import { NotFound } from './components/NotFound.jsx';
 const StudioMode = lazy(() => import('./components/Studio/StudioMode.jsx').then(m => ({ default: m.StudioMode })));
+
+// Valid SPA routes - everything else is 404
+const VALID_HASHES = new Set(['', 'capture', 'editor', 'booth', 'templates']);
+function isValidRoute() {
+  const base = import.meta.env.BASE_URL || '/';
+  const path = window.location.pathname;
+  // Allow base path, index.html, and root (dev server)
+  const validPaths = new Set([base, `${base}index.html`, '/', '/index.html']);
+  // Also allow base without trailing slash
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  if (validPaths.has(path) || path === normalizedBase) {
+    const hash = window.location.hash.replace(/^#\/?/, '').replace('#', '');
+    // empty hash or known hash = valid
+    if (hash === '' || VALID_HASHES.has(hash)) return true;
+    return false;
+  }
+  return false;
+}
 
 export default function App() {
   const [mode, setMode] = useState(4);
@@ -49,6 +68,7 @@ export default function App() {
   const [stripTab, setStripTab] = useState('text');
   const [mirrorOn, setMirrorOn] = useState(true);
   const [currentPage, setCurrentPage] = useState(() => {
+    if (!isValidRoute()) return '404';
     const hash = window.location.hash.replace('#', '');
     return hash === 'editor' ? 'editor' : 'capture';
   });
@@ -192,6 +212,11 @@ export default function App() {
   /* Handle browser back/forward navigation */
   useEffect(() => {
     const handlePopState = () => {
+      if (!isValidRoute()) {
+        setCurrentPage('404');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
       const hash = window.location.hash.replace('#', '');
       setCurrentPage(hash === 'editor' ? 'editor' : 'capture');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -200,12 +225,26 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Also check on mount for invalid pathname (direct navigation)
+  useEffect(() => {
+    if (!isValidRoute()) setCurrentPage('404');
+  }, []);
+
   const goToEditor = useCallback(() => {
     setCurrentPage('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   const goToCapture = useCallback(() => {
+    if (window.location.pathname !== (import.meta.env.BASE_URL || '/')) {
+      window.history.pushState(null, '', import.meta.env.BASE_URL || '/');
+    }
+    setCurrentPage('capture');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const goToHome = useCallback(() => {
+    window.history.pushState(null, '', import.meta.env.BASE_URL || '/');
     setCurrentPage('capture');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
@@ -259,7 +298,17 @@ export default function App() {
       />
 
       <AnimatePresence mode="wait">
-        {currentPage === 'capture' ? (
+        {currentPage === '404' ? (
+          <motion.div
+            key="notfound-page"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <NotFound onGoHome={goToHome} onOpenLab={goToEditor} />
+            <Footer />
+          </motion.div>
+        ) : currentPage === 'capture' ? (
           <motion.div
             key="capture-page"
             initial={{ opacity: 0, x: -40 }}
