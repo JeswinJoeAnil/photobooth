@@ -1,7 +1,26 @@
-const assetModules = import.meta.glob('../../assets/**/*.{png,jpg,jpeg,webp,svg,mp3,wav,ogg}', { eager: true, import: 'default' });
-const assetMap = new Map();
+// ── Eager: photos + filters (hero-critical, always visible) ──
+const eagerModules = import.meta.glob(
+  ['../../assets/photos/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/filters/**/*.{png,jpg,jpeg,webp,svg}'],
+  { eager: true, import: 'default' },
+);
 
-for (const [rawPath, url] of Object.entries(assetModules)) {
+// ── Lazy: stickers, templates, misc (~35MB total) — only loaded on demand ──
+const lazyModules = import.meta.glob(
+  ['../../assets/stickers/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/templates/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/misc/**/*.{png,jpg,jpeg,webp,svg}'],
+  { eager: false, import: 'default' },
+);
+
+// ── Audio: eager URL resolution (files are small refs; actual download is gated by preload="none") ──
+const audioModules = import.meta.glob(
+  '../../assets/audio/**/*.{mp3,wav,ogg}',
+  { eager: true, import: 'default' },
+);
+
+const assetMap = new Map();
+const lazyLoaders = new Map();
+
+// Register eager assets
+for (const [rawPath, url] of Object.entries({ ...eagerModules, ...audioModules })) {
   const cleanPath = rawPath.replace(/^(\.\.\/)+assets\//, '');
   assetMap.set(cleanPath, url);
   const basename = cleanPath.split('/').pop();
@@ -10,6 +29,28 @@ for (const [rawPath, url] of Object.entries(assetModules)) {
   }
 }
 
+// Register lazy sticker loaders
+for (const [rawPath, loader] of Object.entries(lazyModules)) {
+  const cleanPath = rawPath.replace(/^(\.\.\/)+assets\//, '');
+  lazyLoaders.set(cleanPath, loader);
+  const basename = cleanPath.split('/').pop();
+  if (!lazyLoaders.has(basename)) {
+    lazyLoaders.set(basename, loader);
+  }
+}
+
+/**
+ * Resolve a lazy sticker asset. Returns a promise that resolves to the URL.
+ * Caches the result so subsequent calls return the already-resolved URL.
+ */
+export const loadAsset = async (name) => {
+  if (!name) return '';
+  // Already eagerly resolved
+  const sync = asset(name);
+  if (sync) return sync;
+  return '';
+};
+
 export const asset = (name) => {
   if (!name) return '';
   if (assetMap.has(name)) return assetMap.get(name);
@@ -17,6 +58,20 @@ export const asset = (name) => {
   if (assetMap.has(normalized)) return assetMap.get(normalized);
   const base = name.split('/').pop();
   if (assetMap.has(base)) return assetMap.get(base);
+
+  // Check lazy sticker loaders — resolve and cache on first hit
+  const loader = lazyLoaders.get(name) || lazyLoaders.get(normalized) || lazyLoaders.get(base);
+  if (loader) {
+    // Start loading in background and cache when done
+    loader().then((url) => {
+      assetMap.set(name, url);
+      if (normalized !== name) assetMap.set(normalized, url);
+      if (base !== name && base !== normalized) assetMap.set(base, url);
+    });
+    // Return a placeholder URL pointing to the raw asset path (Vite will still serve it in dev)
+    return new URL(`../../assets/stickers/${base}`, import.meta.url).href;
+  }
+
   return new URL(`../../assets/${name}`, import.meta.url).href;
 };
 

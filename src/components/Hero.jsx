@@ -1,5 +1,5 @@
 import React, { memo, useCallback } from 'react';
-import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
+import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import {
   Camera,
   ChevronRight,
@@ -36,11 +36,13 @@ const DeviceFrame = memo(function DeviceFrameComponent({ photos, filter, compact
   );
 });
 
-const StickerBubble = memo(function StickerBubbleComponent({ text, className = '' }) {
+const StickerBubble = memo(function StickerBubbleComponent({ text, className = '', reduced }) {
+  if (reduced) return <div className={`sticker-bubble ${className}`}>{text}</div>;
   return <motion.div className={`sticker-bubble ${className}`} animate={{ y: [0, -8, 0], rotate: [-2, 2, -2] }} transition={{ duration: 4, repeat: Infinity }}>{text}</motion.div>;
 });
 
 function HeroComponent({ onStart, photos, filter, timestamp }) {
+  const prefersReduced = useReducedMotion();
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const springX = useSpring(x, { stiffness: 55, damping: 18 });
@@ -48,10 +50,11 @@ function HeroComponent({ onStart, photos, filter, timestamp }) {
   const rotate = useTransform(springX, [-80, 80], [-2.4, 2.4]);
 
   const handleMouseMove = useCallback((event) => {
+    if (prefersReduced) return;
     const rect = event.currentTarget.getBoundingClientRect();
     x.set((event.clientX - rect.left - rect.width / 2) / 16);
     y.set((event.clientY - rect.top - rect.height / 2) / 18);
-  }, [x, y]);
+  }, [x, y, prefersReduced]);
 
   const heroPhotos = photos.slice(0, 3);
 
@@ -88,8 +91,8 @@ function HeroComponent({ onStart, photos, filter, timestamp }) {
           </div>
         </div>
         <div className="tape tape-top" />
-        <StickerBubble text="good vibes" className="hero-sticker one" />
-        <StickerBubble text="collect beautiful memories" className="hero-sticker two" />
+        <StickerBubble text="good vibes" className="hero-sticker one" reduced={prefersReduced} />
+        <StickerBubble text="collect beautiful memories" className="hero-sticker two" reduced={prefersReduced} />
       </motion.div>
 
       <motion.div className="hero-side-device" initial={{ opacity: 0, x: 60 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.24, type: 'spring' }}>

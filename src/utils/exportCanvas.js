@@ -1,5 +1,5 @@
 import { asset } from '../constants/assets.js';
-import { applyPixelFilter } from './pixelFilters.js';
+import { applyPixelFilterAsync } from './pixelFilters.js';
 
 /**
  * Renders the photostrip to a canvas for export.
@@ -328,9 +328,9 @@ export async function renderExport({
 
   ctx.restore();
 
-  // Premium pixel-level color grading (tone curves, split toning, HSL)
+  // Premium pixel-level color grading (tone curves, split toning, HSL) via Web Worker
   if (filter?.pixel) {
-    applyPixelFilter(ctx, filter.pixel, canvas.width, canvas.height);
+    await applyPixelFilterAsync(ctx, filter.pixel, canvas.width, canvas.height);
   }
 
   return canvas;

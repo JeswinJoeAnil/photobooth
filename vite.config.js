@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   base: '/Memorie/',
   build: {
-    chunkSizeWarningLimit: 900,
+    chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {
         manualChunks: {

@@ -297,9 +297,10 @@ function CameraBoothComponent({
               <button
                 key={item}
                 type="button"
+                role="radio"
                 className={mode === item ? 'active' : ''}
                 onClick={() => { if (!shooting) { setMode(item); setStatusMessage(`Strip set to ${item} photos.`); } }}
-                aria-pressed={mode === item}
+                aria-checked={mode === item}
                 disabled={shooting}
               >
                 <Grid2X2 size={18} />
@@ -309,11 +310,11 @@ function CameraBoothComponent({
             ))}
           </div>
           <div className="camera-stage">
-            <video ref={videoRef} autoPlay playsInline muted className="live-video" style={{ filter: activeFilter.css, transform: mirrorOn ? 'scaleX(-1)' : 'none' }} />
+            <video ref={videoRef} autoPlay playsInline muted className="live-video" aria-label="Live camera preview" style={{ filter: activeFilter.css, transform: mirrorOn ? 'scaleX(-1)' : 'none' }} />
             {!streaming && <img src={assetPhotos[captured.length % assetPhotos.length]} className="live-video fallback-video" style={{ filter: activeFilter.css }} alt="" />}
             <CameraOverlay timestamp={timestamp} />
             <AnimatePresence mode="wait">
-              {countdown && <motion.div className="countdown" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
+              {countdown && <motion.div className="countdown" role="timer" aria-live="assertive" aria-atomic="true" key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}>{countdown}</motion.div>}
             </AnimatePresence>
             {(cameraError || error) && <div className="camera-error" role="alert">{cameraError || error}</div>}
           </div>

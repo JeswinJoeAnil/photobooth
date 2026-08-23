@@ -7,11 +7,30 @@ export function FeedbackOverlay({ onClose, ownerEmail }) {
   const [msg, setMsg] = useState('');
   const [hp, setHp] = useState('');
   const closeButtonRef = useRef(null);
+  const cardRef = useRef(null);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key === 'Tab') {
+        const focusable = cardRef.current?.querySelectorAll(
+          'button, [href], input:not([tabindex="-1"]), select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (!focusable || focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -52,6 +71,7 @@ export function FeedbackOverlay({ onClose, ownerEmail }) {
     <motion.div className="feedback-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="feedback-backdrop" onClick={onClose} role="presentation" />
       <motion.div
+        ref={cardRef}
         className="feedback-card"
         role="dialog"
         aria-modal="true"

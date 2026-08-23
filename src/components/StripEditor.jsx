@@ -1,4 +1,4 @@
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Image as ImageIcon,
@@ -10,6 +10,16 @@ import {
 } from 'lucide-react';
 import { asset, stickerCategories, BACKGROUNDS } from '../constants/assets.js';
 import { Slider } from './Slider.jsx';
+
+let captionFontsInjected = false;
+function loadCaptionFonts() {
+  if (captionFontsInjected || typeof document === 'undefined') return;
+  captionFontsInjected = true;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Permanent+Marker&family=Pacifico&family=Indie+Flower&family=Gloria+Hallelujah&family=Patrick+Hand&family=Amatic+SC:wght@400;700&family=Shadows+Into+Light&family=Satisfy&family=Gochi+Hand&family=Handlee&family=Coming+Soon&display=swap';
+  document.head.appendChild(link);
+}
 
 function StripEditorComponent(props) {
   const {
@@ -46,6 +56,12 @@ function StripEditorComponent(props) {
   ];
 
   const activeDeco = decorations.find(d => d.id === activeDecoId);
+
+  useEffect(() => {
+    if (stripTab === 'text' || activeDeco?.type === 'text') {
+      loadCaptionFonts();
+    }
+  }, [stripTab, activeDeco?.type]);
 
   const handleAddText = useCallback(() => {
     const newId = Date.now().toString();
@@ -114,13 +130,33 @@ function StripEditorComponent(props) {
           </button>
         )}
       </div>
-      <div className="tool-tabs" role="tablist" aria-label="Strip editing tools">
+      <div
+        className="tool-tabs"
+        role="tablist"
+        aria-label="Strip editing tools"
+        onKeyDown={(e) => {
+          const tabIds = tabs.map(t => t.id);
+          const currentIndex = tabIds.indexOf(stripTab);
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            const nextTab = tabIds[(currentIndex + 1) % tabIds.length];
+            setStripTab(nextTab);
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const prevTab = tabIds[(currentIndex - 1 + tabIds.length) % tabIds.length];
+            setStripTab(prevTab);
+          }
+        }}
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            id={`strip-tab-${tab.id}`}
             type="button"
             role="tab"
             aria-selected={stripTab === tab.id}
+            aria-controls={`strip-panel-${tab.id}`}
+            tabIndex={stripTab === tab.id ? 0 : -1}
             className={stripTab === tab.id ? 'active' : ''}
             onClick={() => setStripTab(tab.id)}
           >
@@ -132,7 +168,7 @@ function StripEditorComponent(props) {
 
       <div className="editor-tab-content">
         {stripTab === 'text' && (
-          <div className="text-row">
+          <div className="text-row" id="strip-panel-text" role="tabpanel" aria-labelledby="strip-tab-text">
             {activeDeco && activeDeco.type === 'text' ? (
               <div className="text-controls" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                 <label><span>Caption</span><input value={activeDeco.content} onChange={(e) => updateActiveDeco({ content: e.target.value })} placeholder="Lovely day..." /></label>
@@ -163,7 +199,7 @@ function StripEditorComponent(props) {
           </div>
         )}
         {stripTab === 'stickers' && (
-          <div className="sticker-panel">
+          <div className="sticker-panel" id="strip-panel-stickers" role="tabpanel" aria-labelledby="strip-tab-stickers">
             <p className="panel-hint">Click a sticker to add it to your strip</p>
             <div className="sticker-category-list">
               {stickerCategories.map((category) => (
@@ -175,7 +211,7 @@ function StripEditorComponent(props) {
                   <div className="sticker-grid">
                     {category.items.map((s) => (
                       <button key={`${category.id}-${s}`} type="button" className={`sticker-chip ${s.endsWith('.png') ? 'image-sticker-chip' : ''}`} onClick={() => handleAddSticker(s)} aria-label={`Add ${s.endsWith('.png') ? 'image sticker' : s}`}>
-                        {s.endsWith('.png') ? <img src={asset(s)} alt="" aria-hidden="true" /> : s}
+                        {s.endsWith('.png') ? <img src={asset(s)} alt="" aria-hidden="true" loading="lazy" decoding="async" /> : s}
                       </button>
                     ))}
                   </div>
@@ -185,7 +221,7 @@ function StripEditorComponent(props) {
           </div>
         )}
         {stripTab === 'doodle' && (
-          <div className="doodle-panel">
+          <div className="doodle-panel" id="strip-panel-doodle" role="tabpanel" aria-labelledby="strip-tab-doodle">
             <p className="panel-hint">Pick a brush and draw directly on the strip</p>
             <div className="sticker-grid">
               <button type="button" className={`sticker-chip ${doodleBrush?.color === '#ff5aaf' ? 'active' : ''}`} onClick={() => setDoodleBrush?.({ color: '#ff5aaf', size: 6, shadow: 0 })}>Pink</button>

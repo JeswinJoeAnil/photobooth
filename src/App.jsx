@@ -292,6 +292,7 @@ export default function App() {
       <audio
         ref={audioRef}
         src={ASSETS.playlist[trackIndex]}
+        preload="none"
         onEnded={nextTrack}
         onPlay={(e) => { e.currentTarget.volume = 0.55; }}
         crossOrigin="anonymous"

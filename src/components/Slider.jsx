@@ -9,7 +9,18 @@ function SliderComponent({ label, value, setValue, min = 0, max = 100 }) {
   return (
     <div className="slider-row">
       <label htmlFor={id}>{label}</label>
-      <input id={id} type="range" min={min} max={max} value={value} onChange={onChange} />
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={onChange}
+        aria-valuenow={value}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuetext={`${label}: ${value}`}
+      />
       <output htmlFor={id}>{value}</output>
     </div>
   );

@@ -31,6 +31,38 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
     dragControls.start(e);
   }, [dragControls, onPointerDown]);
 
+  const handleKeyDown = useCallback((e) => {
+    const step = e.shiftKey ? 5 : 1;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, x: Math.max(0, d.x - step) } : d));
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, x: Math.min(100, d.x + step) } : d));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, y: Math.max(0, d.y - step) } : d));
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, y: Math.min(100, d.y + step) } : d));
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      setDecorations(prev => prev.filter(d => d.id !== deco.id));
+    } else if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, scaleX: (d.scaleX || 1) * 1.1, scaleY: (d.scaleY || 1) * 1.1 } : d));
+    } else if (e.key === '-' || e.key === '_') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, scaleX: Math.max(0.2, (d.scaleX || 1) * 0.9), scaleY: Math.max(0.2, (d.scaleY || 1) * 0.9) } : d));
+    } else if (e.key === '[') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, rotation: (d.rotation || 0) - 15 } : d));
+    } else if (e.key === ']') {
+      e.preventDefault();
+      setDecorations(prev => prev.map(d => d.id === deco.id ? { ...d, rotation: (d.rotation || 0) + 15 } : d));
+    }
+  }, [deco.id, setDecorations]);
+
   const style = {
     position: 'absolute',
     top: `${deco.y}%`,
@@ -50,6 +82,7 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
   };
 
   const className = `drag-sticker ${isActive ? 'active-deco' : ''} ${deco.isSmall ? 'small' : ''} ${deco.isChrome ? 'chrome' : ''}`;
+  const ariaLabel = deco.type === 'text' ? `Text decoration: ${deco.content}. Use arrow keys to move, Delete to remove.` : `Sticker: ${deco.content}. Use arrow keys to move, Delete to remove.`;
 
   if (deco.type === 'text') {
     const bgStyle = deco.showBg !== false ? { background: deco.bgColor || '#ff5aaf', padding: '8px 16px', borderRadius: '99px' } : { background: 'transparent', padding: 0 };
@@ -58,6 +91,11 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
         className={className}
         ref={elementRef}
         data-deco-id={deco.id}
+        tabIndex={0}
+        role="button"
+        aria-label={ariaLabel}
+        aria-roledescription="draggable decoration"
+        onKeyDown={handleKeyDown}
         drag
         dragControls={dragControls}
         dragListener={false}
@@ -82,6 +120,11 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
       className={className}
       ref={elementRef}
       data-deco-id={deco.id}
+      tabIndex={0}
+      role="button"
+      aria-label={ariaLabel}
+      aria-roledescription="draggable decoration"
+      onKeyDown={handleKeyDown}
       drag
       dragControls={dragControls}
       dragListener={false}
@@ -100,3 +143,4 @@ export function DraggableDeco({ deco, setDecorations, isActive, onPointerDown })
     </motion.div>
   );
 }
+

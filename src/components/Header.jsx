@@ -138,7 +138,7 @@ function HeaderComponent({
         <button type="button" className="icon-button feedback-mobile-btn" onClick={onFeedbackOpen} aria-label="Feedback">
           <MessageSquare size={20} />
         </button>
-        <button type="button" className="icon-button menu-btn" onClick={onMenuOpen} aria-label="Open menu"><Menu size={20} /></button>
+        <button type="button" className="icon-button menu-btn" onClick={onMenuOpen} aria-label="Open menu" aria-expanded={isMenuOpen} aria-haspopup="true"><Menu size={20} /></button>
       </div>
     </motion.header>
   );
