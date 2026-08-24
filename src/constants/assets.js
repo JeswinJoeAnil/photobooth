@@ -295,7 +295,37 @@ export const stickerCategories = [
       'premium_videocassette.png',
     ],
   },
-];
+].map(category => ({
+  ...category,
+  items: category.items.filter(item => {
+    // If it's a text sticker (no image extension), keep it
+    if (!item.match(/\.(png|jpg|jpeg|webp|svg)$/)) return true;
+    // For images, ensure it exists in our resolved lazyLoaders or assetMap
+    return lazyLoaders.has(item) || assetMap.has(item);
+  })
+}));
+
+const definedStickers = new Set(stickerCategories.flatMap(c => c.items));
+const customStickers = [];
+
+// Find any stickers that were added to the folder but aren't in the predefined lists
+for (const rawPath of Object.keys(lazyModules)) {
+  if (rawPath.includes('/stickers/')) {
+    const basename = rawPath.split('/').pop();
+    if (!definedStickers.has(basename)) {
+      customStickers.push(basename);
+    }
+  }
+}
+
+if (customStickers.length > 0) {
+  stickerCategories.push({
+    id: 'custom',
+    name: 'Custom',
+    vibe: 'Added stickers',
+    items: customStickers,
+  });
+}
 
 export const stickers = stickerCategories.flatMap((category) => category.items);
 
