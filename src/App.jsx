@@ -358,7 +358,7 @@ export default function App() {
                 setEditorTab={setEditorTab}
               />
             </section>
-            <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} compact />
+            <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} mode={mode} compact />
             {captured.length > 0 && (
               <motion.div
                 className="go-to-editor-bar"
@@ -444,7 +444,7 @@ export default function App() {
                 </div>
 
                 <div className="editor-controls-card">
-                  <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} compact />
+                  <TemplateRail frame={frame} setFrame={setFrame} photos={stripPhotos} filter={selectedFilter} accent={accent} mode={mode} compact />
                 </div>
 
                 <div className="editor-controls-card">

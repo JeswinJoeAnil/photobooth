@@ -23,6 +23,15 @@ export async function renderExport({
   previewWidth = 380,
   stripElement = null,
 }) {
+  // ── Custom Template Export ──
+  if (frame.type === 'custom') {
+    return renderCustomTemplateExport({
+      frame, photos, filter, accent, decorations, doodlePaths,
+      zoom, rotation, vignette, fitSettings, photoScales, timestamp,
+      stripElement,
+    });
+  }
+
   // ── Use the classic 900px-wide export layout for a premium strip look ──
   // The strip is rendered at 900px wide with generous margins/padding,
   // matching the original design. Sticker positions are measured from the
@@ -372,4 +381,249 @@ export function drawCover(ctx, image, x, y, width, height, zoom = 1) {
   const z = Math.max(0.7, zoom);
   const zw = width * z, zh = height * z;
   ctx.drawImage(image, sx, sy, sw, sh, x - (zw - width) / 2, y - (zh - height) / 2, zw, zh);
+}
+
+/**
+ * Renders a custom PNG overlay template to a canvas for export.
+ * Photos are drawn at the defined slot positions, then the template PNG is overlaid.
+ */
+async function renderCustomTemplateExport({
+  frame,
+  photos,
+  filter,
+  accent,
+  decorations,
+  doodlePaths,
+  zoom,
+  rotation,
+  vignette,
+  fitSettings,
+  photoScales,
+  timestamp,
+  stripElement,
+}) {
+  // Load the template overlay image — frame.image is eagerly-imported URL, fallback to asset() for string paths
+  const rawSrc = frame.image || frame.imagePath;
+  const templateImgSrc = rawSrc?.startsWith?.('data:') || rawSrc?.startsWith?.('blob:') || rawSrc?.startsWith?.('/') || rawSrc?.startsWith?.('http') ? rawSrc : asset(rawSrc);
+  const templateImg = await loadImage(templateImgSrc);
+
+  // Use template's native dimensions for the canvas
+  const baseW = templateImg.width;
+  const baseH = templateImg.height;
+
+  // CAP CANVAS SIZE to prevent memory crashes
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const MAX_DIM = isMobile ? 3500 : 8000;
+
+  let width = baseW;
+  let height = baseH;
+  let renderScale = 1;
+
+  if (width > MAX_DIM || height > MAX_DIM) {
+    renderScale = Math.min(MAX_DIM / width, MAX_DIM / height);
+    width = Math.ceil(width * renderScale);
+    height = Math.ceil(height * renderScale);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) throw new Error('Could not get canvas context');
+
+  ctx.save();
+  ctx.scale(renderScale, renderScale);
+
+  // Pre-load all photos
+  const loadedPhotos = await Promise.all(
+    photos.map(src => src ? loadImage(src).catch(() => null) : Promise.resolve(null))
+  );
+
+  // Draw photos at slot positions
+  const slots = frame.photoSlots || [];
+  for (let i = 0; i < slots.length; i++) {
+    const img = loadedPhotos[i];
+    if (!img) continue;
+
+    const slot = slots[i];
+    const sx = slot.x * baseW;
+    const sy = slot.y * baseH;
+    const sw = slot.w * baseW;
+    const sh = slot.h * baseH;
+
+    ctx.save();
+    ctx.beginPath();
+    if (frame.id === 'custom-capturing-moments') {
+      // Oval clip for the Capturing Moments template
+      ctx.ellipse(sx + sw / 2, sy + sh / 2, sw / 2, sh / 2, 0, 0, Math.PI * 2);
+    } else {
+      // Rounded rect clip for Memorie+ Dark (12px at preview 380 width => scaled)
+      const r = 12 * (baseW / 380);
+      if (ctx.roundRect) {
+        ctx.roundRect(sx, sy, sw, sh, r);
+      } else {
+        ctx.rect(sx, sy, sw, sh);
+      }
+    }
+    ctx.clip();
+
+    // Draw photo inside the clipped slot with rotation/zoom/scale matching preview CSS
+    ctx.save();
+    ctx.translate(sx + sw / 2, sy + sh / 2);
+    ctx.rotate((rotation * Math.PI) / 180);
+    const pScale = photoScales?.[i] || { x: 1, y: 1 };
+    ctx.scale(pScale.x, pScale.y);
+
+    ctx.filter = filter.css || 'none';
+    const fit = fitSettings?.[i] || 'cover';
+    if (fit === 'contain') {
+      const cR = Math.min(sw / img.width, sh / img.height);
+      const dw = img.width * cR;
+      const dh = img.height * cR;
+      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+    } else {
+      drawCover(ctx, img, -sw / 2, -sh / 2, sw, sh, zoom);
+    }
+    ctx.filter = 'none';
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // Draw the template overlay on top
+  ctx.drawImage(templateImg, 0, 0, baseW, baseH);
+
+  // Draw Decorations (stickers/text) on top of everything
+  if (decorations && decorations.length > 0) {
+    const canvasScale = baseW / 380;
+    const stickerPromises = decorations
+      .filter(d => d.type === 'sticker' && d.isImage)
+      .map(d => loadImage(asset(d.content)).catch(() => null));
+    const loadedStickers = await Promise.all(stickerPromises);
+
+    // Measure from live preview if available
+    const measured = new Map();
+    if (stripElement) {
+      const layer = stripElement.querySelector('.decorations-layer');
+      if (layer) {
+        const prevTransform = stripElement.style.transform;
+        stripElement.style.transform = 'none';
+        const lr = layer.getBoundingClientRect();
+        if (lr.width > 0 && lr.height > 0) {
+          for (const deco of decorations) {
+            const node = stripElement.querySelector(`[data-deco-id="${deco.id}"]`);
+            if (!node) continue;
+            const r = node.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) continue;
+            measured.set(deco.id, {
+              cx: ((r.left + r.width / 2 - lr.left) / lr.width) * baseW,
+              cy: ((r.top + r.height / 2 - lr.top) / lr.height) * baseH,
+              w: (r.width / lr.width) * baseW,
+              h: (r.height / lr.height) * baseH,
+            });
+          }
+        }
+        stripElement.style.transform = prevTransform;
+      }
+    }
+
+    let stickerIdx = 0;
+    for (const deco of decorations) {
+      const baseFontSize = (deco.isSmall ? 10 : 13) * canvasScale;
+      const sX = deco.scaleX ?? 1;
+      const sY = deco.scaleY ?? 1;
+
+      const m = measured.get(deco.id);
+      let cx = m ? m.cx : (deco.x / 100) * baseW;
+      let cy = m ? m.cy : (deco.y / 100) * baseH;
+      let bw = m ? m.w : null;
+      let bh = m ? m.h : null;
+
+      if (deco.type === 'text') {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((deco.rotation * Math.PI) / 180);
+        const fs = deco.showBg === false && bh != null && bh > 0 ? bh : baseFontSize;
+        ctx.font = `900 ${fs}px ${deco.font || 'Inter'}, sans-serif`;
+        if (deco.showBg !== false) {
+          ctx.fillStyle = deco.bgColor || '#ff5aaf';
+          const textWidth = ctx.measureText(deco.content).width;
+          const h = bh ?? (baseFontSize * 1.5);
+          const w = bw ?? (textWidth + (baseFontSize * 1.2));
+          ctx.beginPath();
+          ctx.roundRect(-w / 2, -h / 2, w, h, h / 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = deco.color || '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(deco.content, 0, 0);
+        ctx.restore();
+      } else if (deco.type === 'sticker') {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((deco.rotation * Math.PI) / 180);
+        if (deco.isImage) {
+          const sImg = loadedStickers[stickerIdx++];
+          if (sImg) {
+            const w = bw ?? 100 * sX * canvasScale;
+            const h = bh ?? (sImg.height / sImg.width) * (100 * sY * canvasScale);
+            if (deco.showBg !== false) {
+              ctx.fillStyle = deco.bgColor || '#ff5aaf';
+              const bgPadding = 12 * Math.max(sX, sY) * canvasScale;
+              ctx.beginPath();
+              ctx.roundRect(-w / 2 - bgPadding, -h / 2 - bgPadding, w + bgPadding * 2, h + bgPadding * 2, bgPadding);
+              ctx.fill();
+            }
+            const iw = bw != null ? Math.max(1, w - 16 * sX) : w;
+            const ih = bh != null ? Math.max(1, h - 16 * sY) : h;
+            ctx.drawImage(sImg, -iw / 2, -ih / 2, iw, ih);
+          }
+        } else {
+          const fs = deco.showBg === false && bh != null && bh > 0 ? bh : baseFontSize;
+          ctx.font = `900 ${fs}px Fraunces, serif`;
+          if (deco.showBg !== false) {
+            ctx.fillStyle = deco.bgColor || '#ff5aaf';
+            const textWidth = ctx.measureText(deco.content).width;
+            const h = bh ?? (baseFontSize * 1.5);
+            const w = bw ?? (textWidth + (baseFontSize * 1.2));
+            ctx.beginPath();
+            ctx.roundRect(-w / 2, -h / 2, w, h, h / 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+          } else {
+            ctx.fillStyle = deco.isChrome ? '#111' : '#4e1534';
+          }
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(deco.content, 0, 0);
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  // Draw Doodles
+  if (doodlePaths) {
+    doodlePaths.forEach(path => {
+      if (path.points.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = path.color;
+      ctx.lineWidth = path.size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (path.shadow) {
+        ctx.shadowBlur = path.shadow;
+        ctx.shadowColor = path.color;
+      }
+      ctx.moveTo(path.points[0].x, path.points[0].y);
+      path.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    });
+  }
+
+  ctx.restore();
+
+  return canvas;
 }

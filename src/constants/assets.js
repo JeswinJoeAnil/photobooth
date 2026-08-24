@@ -4,6 +4,11 @@ const eagerModules = import.meta.glob(
   { eager: true, import: 'default' },
 );
 
+// Eagerly import custom template overlays so they resolve synchronously (avoid lazy placeholder 404)
+// Renamed files to avoid spaces / Vite import-analysis issues (see assets/templates/)
+import capturingMomentsOverlay from '../../assets/templates/capturing-moments.png';
+import memorieDarkOverlay from '../../assets/templates/memorie-dark.png';
+
 // ── Lazy: stickers, templates, misc (~35MB total) — only loaded on demand ──
 const lazyModules = import.meta.glob(
   ['../../assets/stickers/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/templates/**/*.{png,jpg,jpeg,webp,svg}', '../../assets/misc/**/*.{png,jpg,jpeg,webp,svg}'],
@@ -28,6 +33,17 @@ for (const [rawPath, url] of Object.entries({ ...eagerModules, ...audioModules }
     assetMap.set(basename, url);
   }
 }
+
+// Register custom template overlays eagerly (so asset() returns hashed URL synchronously)
+assetMap.set('templates/capturing-moments.png', capturingMomentsOverlay);
+assetMap.set('capturing-moments.png', capturingMomentsOverlay);
+assetMap.set('templates/memorie-dark.png', memorieDarkOverlay);
+assetMap.set('memorie-dark.png', memorieDarkOverlay);
+// Keep legacy space-filled keys for backwards-compat (old frame.image strings)
+assetMap.set('templates/template with 3 image slots.png', capturingMomentsOverlay);
+assetMap.set('template with 3 image slots.png', capturingMomentsOverlay);
+assetMap.set('templates/2nd temp with 3 img slots.png', memorieDarkOverlay);
+assetMap.set('2nd temp with 3 img slots.png', memorieDarkOverlay);
 
 // Register lazy sticker loaders
 for (const [rawPath, loader] of Object.entries(lazyModules)) {
@@ -69,7 +85,9 @@ export const asset = (name) => {
       if (base !== name && base !== normalized) assetMap.set(base, url);
     });
     // Return a placeholder URL pointing to the raw asset path (Vite will still serve it in dev)
-    return new URL(`../../assets/stickers/${base}`, import.meta.url).href;
+    // Use the normalized path so templates/misc resolve correctly, not just stickers
+    const placeholderPath = normalized.includes('/') ? normalized : `stickers/${base}`;
+    return new URL(`../../assets/${placeholderPath}`, import.meta.url).href;
   }
 
   return new URL(`../../assets/${name}`, import.meta.url).href;
@@ -236,10 +254,48 @@ export const filters = [
 export const frames = [
   { id: 'korean', name: 'Korean Day', tone: 'rose', description: 'Tall strip, glossy pink edge, tiny chrome charms.' },
   { id: 'scrap', name: 'Scrapbook', tone: 'paper', description: 'Layered tape, notes, paper texture, dreamy margin.' },
-  { id: 'chrome', name: 'Silver Y2K', tone: 'chrome', description: 'Chrome shell with camera hardware as the frame.' },
   { id: 'magazine', name: 'Magazine', tone: 'editorial', description: 'Fashion editorial blocks, masthead, date stamp.' },
   { id: 'doodle', name: 'Doodle Strip', tone: 'ink', description: 'Hand-drawn marks and sticker-heavy nostalgia.' },
-  { id: 'camera', name: 'Camera Frame', tone: 'camera', description: 'Photos placed directly inside a retro digicam body.' },
+];
+
+/**
+ * Custom PNG overlay templates.
+ * Each template has a fixed number of photo slots and a PNG overlay image.
+ * Photos are drawn at the defined slot positions, then the PNG overlay is drawn on top.
+ * Slot coordinates are normalized (0–1) relative to the template image dimensions.
+ */
+export const customTemplates = [
+  {
+    id: 'custom-capturing-moments',
+    name: 'Capturing Moments',
+    type: 'custom',
+    slots: 3,
+    image: capturingMomentsOverlay,
+    // Keep raw path as fallback for asset() lookups (e.g. tests)
+    imagePath: 'templates/capturing-moments.png',
+    // Template image aspect ratio (793 x 1983) — measured via sharp
+    aspectRatio: 793 / 1983,
+    photoSlots: [
+      { x: 0.1727, y: 0.2239, w: 0.6507, h: 0.1719 },
+      { x: 0.1803, y: 0.4236, w: 0.6406, h: 0.1729 },
+      { x: 0.1677, y: 0.6157, w: 0.6519, h: 0.1487 },
+    ],
+  },
+  {
+    id: 'custom-memorie-dark',
+    name: 'Memorie+ Dark',
+    type: 'custom',
+    slots: 3,
+    image: memorieDarkOverlay,
+    imagePath: 'templates/memorie-dark.png',
+    // Template image aspect ratio (1024 x 1536) — measured via sharp
+    aspectRatio: 1024 / 1536,
+    photoSlots: [
+      { x: 0.3300, y: 0.0807, w: 0.3623, h: 0.2428 },
+      { x: 0.2959, y: 0.3587, w: 0.3593, h: 0.2415 },
+      { x: 0.2646, y: 0.6347, w: 0.3535, h: 0.2063 },
+    ],
+  },
 ];
 
 export const stickerCategories = [

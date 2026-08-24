@@ -1,7 +1,7 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
-import { frames } from '../constants/assets.js';
+import { frames, customTemplates, assetPhotos, asset } from '../constants/assets.js';
 
 const MiniTemplate = memo(function MiniTemplateComponent({ frame, photos, filter, accent }) {
   return (
@@ -14,7 +14,83 @@ const MiniTemplate = memo(function MiniTemplateComponent({ frame, photos, filter
   );
 });
 
-function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compact = false }) {
+const CustomMiniTemplate = memo(function CustomMiniTemplateComponent({ template, photos, filter, accent }) {
+  const imgSrc = template.image?.startsWith?.('data:') || template.image?.startsWith?.('blob:') || template.image?.startsWith?.('/') || template.image?.startsWith?.('http')
+    ? template.image
+    : asset(template.image || template.imagePath);
+  const slots = template.photoSlots || [];
+
+  return (
+    <div className="mini-template mini-template-custom" style={{ '--accent': accent }}>
+      <div
+        className="custom-mini-strip-frame"
+        style={{
+          height: '100%',
+          aspectRatio: template.aspectRatio ? `${template.aspectRatio}` : 'auto',
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: '7px',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Photo slots behind the PNG overlay */}
+        {slots.map((slot, index) => {
+          const photo = photos?.[index] || assetPhotos[index % assetPhotos.length];
+          return (
+            <div
+              key={index}
+              className="mini-custom-slot"
+              style={{
+                position: 'absolute',
+                left: `${slot.x * 100}%`,
+                top: `${slot.y * 100}%`,
+                width: `${slot.w * 100}%`,
+                height: `${slot.h * 100}%`,
+                borderRadius: template.id === 'custom-capturing-moments' ? '50%' : '3px',
+                overflow: 'hidden',
+                zIndex: 1,
+              }}
+            >
+              {photo && (
+                <img
+                  src={photo}
+                  alt=""
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    filter: filter?.css || 'none',
+                    display: 'block',
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {/* Real PNG template overlay on top */}
+        <img
+          src={imgSrc}
+          alt={`${template.name} template preview`}
+          className="custom-template-thumb"
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+
+      <span>{template.name}</span>
+    </div>
+  );
+});
+
+function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compact = false, mode }) {
+  const filteredCustom = useMemo(() => {
+    if (!mode) return customTemplates;
+    return customTemplates.filter(t => t.slots === mode);
+  }, [mode]);
+
   return (
     <section id="templates" className={`template-section ${compact ? 'template-section-compact' : ''}`}>
       {!compact && (
@@ -38,6 +114,27 @@ function TemplateRailComponent({ frame, setFrame, photos, filter, accent, compac
             <span>{item.name}</span>
           </motion.button>
         ))}
+
+        {filteredCustom.length > 0 && (
+          <>
+            <div className="template-rail-divider" aria-hidden="true" />
+            {filteredCustom.map((template, index) => (
+              <motion.button
+                key={template.id}
+                type="button"
+                className={`template-card template-card-custom ${frame.id === template.id ? 'active' : ''}`}
+                onClick={() => setFrame(template)}
+                aria-pressed={frame.id === template.id}
+                aria-label={`Use ${template.name} custom template`}
+                whileHover={{ y: -8, rotate: index % 2 ? 1.4 : -1.4 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <CustomMiniTemplate template={template} photos={photos} filter={filter} accent={accent} />
+                <span>{template.name}</span>
+              </motion.button>
+            ))}
+          </>
+        )}
       </div>
     </section>
   );
