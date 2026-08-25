@@ -112,6 +112,7 @@ function PhotoResultComponent({
             const photo = photos[index];
             if (!photo) return null;
             const pScale = photoScales?.[index] || { x: 1, y: 1 };
+            const tilt = slot.rot !== undefined ? slot.rot : (frame.tilt || 0);
             return (
               <div
                 key={`custom-slot-${index}`}
@@ -123,7 +124,9 @@ function PhotoResultComponent({
                   width: `${slot.w * 100}%`,
                   height: `${slot.h * 100}%`,
                   overflow: 'hidden',
-                  borderRadius: frame.id === 'custom-capturing-moments' ? '50%' : '12px',
+                  borderRadius: slot.borderRadius || (frame.id === 'custom-capturing-moments' ? '50%' : '14px'),
+                  transform: tilt ? `rotate(${tilt}deg)` : undefined,
+                  transformOrigin: 'center center',
                 }}
               >
                 <img
@@ -192,21 +195,21 @@ function PhotoResultComponent({
         onClick={onStripBackdropClick}
       >
         <div className="result-meta">{timestamp.time} / {timestamp.date}</div>
-           {photos.map((photo, index) => (
-            <DraggablePhoto 
-              key={`photo-${index}`} 
-              photo={photo} 
-              filter={filter} 
-              index={index} 
-              zoom={zoom} 
-              rotation={rotation} 
-              fitMode={fitSettings?.[index]} 
-              scale={photoScales?.[index] || { x: 1, y: 1 }}
-              onScale={(newScale) => setPhotoScales?.(prev => ({ ...prev, [index]: newScale }))}
-              isActive={activeDecoId === `photo-${index}`}
-              onPointerDown={() => setActiveDecoId?.(`photo-${index}`)}
-            />
-          ))}
+        {photos.map((photo, index) => (
+          <DraggablePhoto
+            key={`photo-${index}`}
+            photo={photo}
+            filter={filter}
+            index={index}
+            zoom={zoom}
+            rotation={rotation}
+            fitMode={fitSettings?.[index]}
+            scale={photoScales?.[index] || { x: 1, y: 1 }}
+            onScale={(newScale) => setPhotoScales?.(prev => ({ ...prev, [index]: newScale }))}
+            isActive={activeDecoId === `photo-${index}`}
+            onPointerDown={() => setActiveDecoId?.(`photo-${index}`)}
+          />
+        ))}
 
         <DoodleCanvas stripTab={stripTab} doodlePaths={doodlePaths} setDoodlePaths={setDoodlePaths} doodleBrush={doodleBrush} previewWidth={previewW} />
 

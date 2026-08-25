@@ -5,9 +5,8 @@ const eagerModules = import.meta.glob(
 );
 
 // Eagerly import custom template overlays so they resolve synchronously (avoid lazy placeholder 404)
-// Renamed files to avoid spaces / Vite import-analysis issues (see assets/templates/)
 import capturingMomentsOverlay from '../../assets/templates/capturing-moments.png';
-import memorieDarkOverlay from '../../assets/templates/memorie-dark.png';
+import template2Overlay from '../../assets/templates/2.png';
 
 // ── Lazy: stickers, templates, misc (~35MB total) — only loaded on demand ──
 const lazyModules = import.meta.glob(
@@ -37,13 +36,15 @@ for (const [rawPath, url] of Object.entries({ ...eagerModules, ...audioModules }
 // Register custom template overlays eagerly (so asset() returns hashed URL synchronously)
 assetMap.set('templates/capturing-moments.png', capturingMomentsOverlay);
 assetMap.set('capturing-moments.png', capturingMomentsOverlay);
-assetMap.set('templates/memorie-dark.png', memorieDarkOverlay);
-assetMap.set('memorie-dark.png', memorieDarkOverlay);
-// Keep legacy space-filled keys for backwards-compat (old frame.image strings)
+assetMap.set('templates/2.png', template2Overlay);
+assetMap.set('2.png', template2Overlay);
+// Keep legacy aliases for backwards-compat
+assetMap.set('templates/memorie-dark.png', template2Overlay);
+assetMap.set('memorie-dark.png', template2Overlay);
 assetMap.set('templates/template with 3 image slots.png', capturingMomentsOverlay);
 assetMap.set('template with 3 image slots.png', capturingMomentsOverlay);
-assetMap.set('templates/2nd temp with 3 img slots.png', memorieDarkOverlay);
-assetMap.set('2nd temp with 3 img slots.png', memorieDarkOverlay);
+assetMap.set('templates/2nd temp with 3 img slots.png', template2Overlay);
+assetMap.set('2nd temp with 3 img slots.png', template2Overlay);
 
 // Register lazy sticker loaders
 for (const [rawPath, loader] of Object.entries(lazyModules)) {
@@ -286,14 +287,56 @@ export const customTemplates = [
     name: 'Memorie+ Dark',
     type: 'custom',
     slots: 3,
-    image: memorieDarkOverlay,
-    imagePath: 'templates/memorie-dark.png',
-    // Template image aspect ratio (1024 x 1536) — measured via sharp
-    aspectRatio: 1024 / 1536,
+    image: template2Overlay,
+    imagePath: 'templates/2.png',
+    // Template image aspect ratio (941 x 1672) — measured via sharp
+    aspectRatio: 941 / 1672,
     photoSlots: [
-      { x: 0.3300, y: 0.0807, w: 0.3623, h: 0.2428 },
-      { x: 0.2959, y: 0.3587, w: 0.3593, h: 0.2415 },
-      { x: 0.2646, y: 0.6347, w: 0.3535, h: 0.2063 },
+      {
+        id: 'slot-1',
+        x: 0.3395,
+        y: 0.0649,
+        w: 0.4410,
+        h: 0.2482,
+        rot: 5.0,
+        borderRadius: '14px',
+        corners: {
+          topLeft: { x: 0.3698, y: 0.0718 },
+          topRight: { x: 0.7885, y: 0.0921 },
+          bottomRight: { x: 0.7503, y: 0.3062 },
+          bottomLeft: { x: 0.3316, y: 0.2859 },
+        },
+      },
+      {
+        id: 'slot-2',
+        x: 0.2885,
+        y: 0.3364,
+        w: 0.4410,
+        h: 0.2482,
+        rot: 5.0,
+        borderRadius: '14px',
+        corners: {
+          topLeft: { x: 0.3188, y: 0.3379 },
+          topRight: { x: 0.7375, y: 0.3589 },
+          bottomRight: { x: 0.6993, y: 0.5742 },
+          bottomLeft: { x: 0.2806, y: 0.5532 },
+        },
+      },
+      {
+        id: 'slot-3',
+        x: 0.2375,
+        y: 0.6080,
+        w: 0.4410,
+        h: 0.2482,
+        rot: 5.0,
+        borderRadius: '14px',
+        corners: {
+          topLeft: { x: 0.2678, y: 0.6041 },
+          topRight: { x: 0.6865, y: 0.6250 },
+          bottomRight: { x: 0.6482, y: 0.8403 },
+          bottomLeft: { x: 0.2295, y: 0.8194 },
+        },
+      },
     ],
   },
 ];

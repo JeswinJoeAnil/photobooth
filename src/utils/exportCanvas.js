@@ -452,25 +452,28 @@ async function renderCustomTemplateExport({
     const sw = slot.w * baseW;
     const sh = slot.h * baseH;
 
+    const tilt = slot.rot !== undefined ? slot.rot : (frame.tilt || 0);
     ctx.save();
+    // Move to slot center and apply template tilt before clipping — matches Preview's slot rotate
+    ctx.translate(sx + sw / 2, sy + sh / 2);
+    ctx.rotate((tilt * Math.PI) / 180);
     ctx.beginPath();
     if (frame.id === 'custom-capturing-moments') {
-      // Oval clip for the Capturing Moments template
-      ctx.ellipse(sx + sw / 2, sy + sh / 2, sw / 2, sh / 2, 0, 0, Math.PI * 2);
+      // Oval clip for the Capturing Moments template (centered at 0,0)
+      ctx.ellipse(0, 0, sw / 2, sh / 2, 0, 0, Math.PI * 2);
     } else {
-      // Rounded rect clip for Memorie+ Dark (12px at preview 380 width => scaled)
-      const r = 12 * (baseW / 380);
+      // Rounded rect clip (scaled to canvas resolution)
+      const r = (slot.borderRadius ? parseInt(slot.borderRadius, 10) : 14) * (baseW / 380);
       if (ctx.roundRect) {
-        ctx.roundRect(sx, sy, sw, sh, r);
+        ctx.roundRect(-sw / 2, -sh / 2, sw, sh, r);
       } else {
-        ctx.rect(sx, sy, sw, sh);
+        ctx.rect(-sw / 2, -sh / 2, sw, sh);
       }
     }
     ctx.clip();
 
-    // Draw photo inside the clipped slot with rotation/zoom/scale matching preview CSS
+    // Draw photo inside the tilted clipped slot with user rotation/zoom/scale
     ctx.save();
-    ctx.translate(sx + sw / 2, sy + sh / 2);
     ctx.rotate((rotation * Math.PI) / 180);
     const pScale = photoScales?.[i] || { x: 1, y: 1 };
     ctx.scale(pScale.x, pScale.y);

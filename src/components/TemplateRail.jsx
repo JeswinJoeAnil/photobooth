@@ -38,6 +38,7 @@ const CustomMiniTemplate = memo(function CustomMiniTemplateComponent({ template,
         {/* Photo slots behind the PNG overlay */}
         {slots.map((slot, index) => {
           const photo = photos?.[index] || assetPhotos[index % assetPhotos.length];
+          const tilt = slot.rot !== undefined ? slot.rot : (template.tilt || 0);
           return (
             <div
               key={index}
@@ -49,6 +50,8 @@ const CustomMiniTemplate = memo(function CustomMiniTemplateComponent({ template,
                 width: `${slot.w * 100}%`,
                 height: `${slot.h * 100}%`,
                 borderRadius: template.id === 'custom-capturing-moments' ? '50%' : '3px',
+                transform: tilt ? `rotate(${tilt}deg)` : undefined,
+                transformOrigin: 'center center',
                 overflow: 'hidden',
                 zIndex: 1,
               }}
